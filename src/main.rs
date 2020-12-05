@@ -5,6 +5,7 @@ extern crate camera_controllers;
 #[macro_use]
 extern crate gfx;
 extern crate shader_version;
+extern crate dual_quaternion;
 #[macro_use] extern crate conrod;
 
 mod load_mesh;
@@ -62,6 +63,7 @@ fn main() {
         .graphics_api(opengl)
         .build()
         .unwrap();
+    // window.set_capture_cursor(true);
 
     let ref mut factory = window.factory.clone();
 
@@ -111,41 +113,43 @@ fn main() {
         }
     );
 
+    let view_orientation =
+        dual_quaternion::from_rotation_and_translation((0., [0.;3]), [0.5, 0.5, 4.]);
+    let view_mat = [[1., 0., 0., -0.5],
+                                [0., 1., 0., -0.5],
+                                [0., 0., 1., -4. ],
+                                [0., 0., 0.,  1. ]];
+
     let mut data = pipe::Data {
             vbuf:           vbuf.clone(),
             u_proj:         get_projection(&window),
-            u_view:         vecmath::mat4_id(),
+            u_view:         view_mat,
             u_model:        vecmath::mat4_id(),
-            view_pos:       [0.; 3],
+            view_pos:       [0.5, 0.5, 4.],
             light_pos:      [50.; 3],
             light_color:    [1.; 3],
             out_color:      window.output_color.clone(),
             out_depth:      window.output_stencil.clone(),
         };
-
+    let mut holding_mouse_button = None;
     while let Some(e) = window.next() {
-        if let Some(Button::Mouse(button)) = e.press_args() {
-            first_person.event(&e);
-            println!("Pressed mouse button '{:?}'", button);
-        }
-        if let Some(Button::Keyboard(key)) = e.press_args() {
-            if key == Key::C {
-                println!("Turned capture cursor on");
-                capture_cursor = !capture_cursor;
-                window.set_capture_cursor(capture_cursor);
-            }
 
-            println!("Pressed keyboard key '{:?}'", key);
-        };
-        if let Some(args) = e.button_args() {
-            println!("Scancode {:?}", args.scancode);
+        if holding_mouse_button != None {
+            first_person.event(&e);
+        }
+
+        if let Some(Button::Mouse(button)) = e.press_args() {
+            holding_mouse_button = Some(button);
         }
         if let Some(button) = e.release_args() {
             match button {
-                Button::Keyboard(key) => println!("Released keyboard key '{:?}'", key),
-                Button::Mouse(button) => println!("Released mouse button '{:?}'", button),
-                Button::Controller(button) => println!("Released controller button '{:?}'", button),
-                Button::Hat(hat) => println!("Released controller hat `{:?}`", hat),
+                // Button::Keyboard(key) => println!("Released keyboard key '{:?}'", key),
+                Button::Mouse(button) => if button == holding_mouse_button.unwrap() {
+                    holding_mouse_button = None;
+                },
+                _ => ()
+                // Button::Controller(button) => println!("Released controller button '{:?}'", button),
+                // Button::Hat(hat) => println!("Released controller hat `{:?}`", hat),
             }
         };
 
