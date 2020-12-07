@@ -9,7 +9,7 @@ extern crate dual_quaternion;
 #[macro_use] extern crate conrod;
 
 mod load_mesh;
-use load_mesh::*;
+// use load_mesh::*;
 
 //----------------------------------------
 // Cube associated data
@@ -114,11 +114,11 @@ fn main() {
     );
 
     let view_orientation =
-        dual_quaternion::from_rotation_and_translation((0., [0.;3]), [0.5, 0.5, 4.]);
-    let view_mat = [[1., 0., 0., -0.5],
-                                [0., 1., 0., -0.5],
-                                [0., 0., 1., -4. ],
-                                [0., 0., 0.,  1. ]];
+        dual_quaternion::from_rotation_and_translation((1., [0.;3]), [0.5, 0.5, 4.]);
+    let view_mat = [[1., 0., 0.,  0. ],
+                    [0., 1., 0.,  0. ],
+                    [0., 0., 1.,  0. ],
+                    [0., 0., 0.,  1. ]];
 
     let mut data = pipe::Data {
             vbuf:           vbuf.clone(),
@@ -133,23 +133,54 @@ fn main() {
         };
     let mut holding_mouse_button = None;
     while let Some(e) = window.next() {
+        let ((r_0, [r_1, r_2, r_3]), _) = view_orientation;
+        let [x, y, z] = dual_quaternion::get_translation(view_orientation);
+        let r = [r_1, r_2, r_3];
 
+        // let mat1 = [
+        //     [     r_0 * r_0 + r_1 * r_1, 2. * r_1 * r_2            , 2. * r_1 * r_3            ],
+        //     [2. * r_2 * r_1            ,      r_0 * r_0 + r_2 * r_2, 2. * r_2 * r_3            ],
+        //     [2. * r_3 * r_1            , 2. * r_3 * r_2            ,      r_0 * r_0 + r_3 * r_3]
+        // ];
+        // let mat2 = [
+        //     [      r_2 * r_2 + r_3 * r_3, 2. * r_0 * r_3            , -2. * r_0 * r_2            ],
+        //     [-2. * r_0 * r_3            ,      r_1 * r_1 + r_3 * r_3,  2. * r_0 * r_1            ],
+        //     [ 2. * r_0 * r_2            ,-2. * r_0 * r_1            ,       r_1 * r_1 + r_2 * r_2]
+        // ];
+        let mut mat = [[0.; 3]; 3];
+        let d = |i: f32, j: f32| if i == j { 1. } else { 0. };
+        let ek = |j: f32, k: f32| -> f32 {
+            (0..3).map(|x| ((x as f32 - j) * (j - k) * (k - x as f32)) * (d(j, k) - 1.) / 2.).sum()
+        };
+
+        (0..3).for_each(|i| (0..3).for_each(|j| {
+                let mut t = ek(i as f32, j as f32);
+                if t != 0. { t *= 2. * r[3 - i - j]; }
+
+                mat[i][j] = r[i] * r[j] * (2. - d(i as f32, j as f32)) + r_0 * (r_0 * d(i as f32, j as f32) +
+                t) + d(i as f32, j as f32) * (r[i] * r[i] - r[0] * r[0] - r[1] * r[1] - r[2] * r[2]);
+            }
+        ));
+
+        let view = [
+            [mat[0][0], mat[0][1], mat[0][2], x ],
+            [mat[1][0], mat[1][1], mat[1][2], y ],
+            [mat[2][0], mat[2][1], mat[2][2], z ],
+            [0.       , 0.       , 0.       , 1.]
+        ];
+        data.u_view = view;
         if holding_mouse_button != None {
+
             first_person.event(&e);
         }
 
         if let Some(Button::Mouse(button)) = e.press_args() {
             holding_mouse_button = Some(button);
         }
-        if let Some(button) = e.release_args() {
-            match button {
-                // Button::Keyboard(key) => println!("Released keyboard key '{:?}'", key),
-                Button::Mouse(button) => if button == holding_mouse_button.unwrap() {
-                    holding_mouse_button = None;
-                },
-                _ => ()
-                // Button::Controller(button) => println!("Released controller button '{:?}'", button),
-                // Button::Hat(hat) => println!("Released controller hat `{:?}`", hat),
+
+        if let Some(Button::Mouse(button)) = e.release_args() {
+            if button == holding_mouse_button.unwrap() {
+                holding_mouse_button = None;
             }
         };
 
@@ -158,8 +189,8 @@ fn main() {
 
             window.encoder.clear(&window.output_color, [0.3, 0.3, 0.3, 1.0]);
             window.encoder.clear_depth(&window.output_stencil, 1.0);
-
-            data.u_view = first_person.camera(args.ext_dt).orthogonal();
+// data.u_view = view_mat;
+            // data.u_view = first_person.camera(args.ext_dt).orthogonal();
             data.view_pos = first_person.camera(args.ext_dt).position;
 
             window.encoder.draw(&slice, &pso, &data);
