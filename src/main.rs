@@ -5,7 +5,7 @@ extern crate camera_controllers;
 #[macro_use]
 extern crate gfx;
 extern crate shader_version;
-extern crate dual_quaternion;
+extern crate quaternion;
 #[macro_use] extern crate conrod;
 
 mod load_mesh;
@@ -48,11 +48,7 @@ impl Vertex {
 fn main() {
     use piston_window::*;
     use gfx::traits::*;
-    use camera_controllers::{
-        FirstPersonSettings,
-        FirstPerson,
-        CameraPerspective
-    };
+    use camera_controllers::CameraPerspective;
 
     let opengl = OpenGL::V3_2;
 
@@ -104,74 +100,68 @@ fn main() {
         }.projection()
     };
 
-    let mut first_person = FirstPerson::new(
-        [0.5, 0.5, 4.0],
-        FirstPersonSettings{
-            mouse_sensitivity_horizontal: 0.5,
-            mouse_sensitivity_vertical: 0.5,
-            ..FirstPersonSettings::keyboard_wasd()
-        }
-    );
-
-    let view_orientation =
-        dual_quaternion::from_rotation_and_translation((1., [0.;3]), [0.5, 0.5, 4.]);
-    let view_mat = [[1., 0., 0.,  0. ],
-                    [0., 1., 0.,  0. ],
-                    [0., 0., 1.,  0. ],
-                    [0., 0., 0.,  1. ]];
+    let mut view_orientation = quaternion::id::<f32>();
 
     let mut data = pipe::Data {
-            vbuf:           vbuf.clone(),
-            u_proj:         get_projection(&window),
-            u_view:         view_mat,
-            u_model:        vecmath::mat4_id(),
-            view_pos:       [0.5, 0.5, 4.],
-            light_pos:      [50.; 3],
-            light_color:    [1.; 3],
-            out_color:      window.output_color.clone(),
-            out_depth:      window.output_stencil.clone(),
-        };
+        vbuf:           vbuf.clone(),
+        u_proj:         get_projection(&window),
+        u_view:         vecmath::mat4_id(),
+        u_model:        vecmath::mat4_id(),
+        view_pos:       [0., 0., -8.],
+        light_pos:      [50.; 3],
+        light_color:    [1.; 3],
+        out_color:      window.output_color.clone(),
+        out_depth:      window.output_stencil.clone(),
+    };
+
     let mut holding_mouse_button = None;
+
     while let Some(e) = window.next() {
-        let ((r_0, [r_1, r_2, r_3]), _) = view_orientation;
-        let [x, y, z] = dual_quaternion::get_translation(view_orientation);
-        let r = [r_1, r_2, r_3];
-
-        // let mat1 = [
-        //     [     r_0 * r_0 + r_1 * r_1, 2. * r_1 * r_2            , 2. * r_1 * r_3            ],
-        //     [2. * r_2 * r_1            ,      r_0 * r_0 + r_2 * r_2, 2. * r_2 * r_3            ],
-        //     [2. * r_3 * r_1            , 2. * r_3 * r_2            ,      r_0 * r_0 + r_3 * r_3]
-        // ];
-        // let mat2 = [
-        //     [      r_2 * r_2 + r_3 * r_3, 2. * r_0 * r_3            , -2. * r_0 * r_2            ],
-        //     [-2. * r_0 * r_3            ,      r_1 * r_1 + r_3 * r_3,  2. * r_0 * r_1            ],
-        //     [ 2. * r_0 * r_2            ,-2. * r_0 * r_1            ,       r_1 * r_1 + r_2 * r_2]
-        // ];
-        let mut mat = [[0.; 3]; 3];
-        let d = |i: f32, j: f32| if i == j { 1. } else { 0. };
-        let ek = |j: f32, k: f32| -> f32 {
-            (0..3).map(|x| ((x as f32 - j) * (j - k) * (k - x as f32)) * (d(j, k) - 1.) / 2.).sum()
-        };
-
-        (0..3).for_each(|i| (0..3).for_each(|j| {
-                let mut t = ek(i as f32, j as f32);
-                if t != 0. { t *= 2. * r[3 - i - j]; }
-
-                mat[i][j] = r[i] * r[j] * (2. - d(i as f32, j as f32)) + r_0 * (r_0 * d(i as f32, j as f32) +
-                t) + d(i as f32, j as f32) * (r[i] * r[i] - r[0] * r[0] - r[1] * r[1] - r[2] * r[2]);
-            }
-        ));
-
-        let view = [
-            [mat[0][0], mat[0][1], mat[0][2], x ],
-            [mat[1][0], mat[1][1], mat[1][2], y ],
-            [mat[2][0], mat[2][1], mat[2][2], z ],
-            [0.       , 0.       , 0.       , 1.]
-        ];
-        data.u_view = view;
         if holding_mouse_button != None {
+            e.mouse_relative(|mut d| {
+                let front = quaternion::rotate_vector(view_orientation, [0., 0., 1.]);
+                let right = quaternion::rotate_vector(view_orientation, [1., 0., 0.]);
+                let mut s = [front[2], 0., -front[0]]; //cross-product of front and y-axis
 
-            first_person.event(&e);
+                let q_x = quaternion::axis_angle::<f32>([0., 1., 0.], -d[0] as f32 * 0.01);
+                let q_y = quaternion::axis_angle::<f32>(vecmath::vec3_normalized(s), -d[1] as f32 * 0.01);
+                let q_z = quaternion::rotation_from_to(right, [right[0], 0., right[2]]);
+
+                view_orientation = quaternion::mul(q_x, view_orientation);
+                view_orientation = quaternion::mul(q_y, view_orientation);
+                view_orientation = quaternion::mul(q_z, view_orientation);
+            });
+
+            let (w, r) = view_orientation;
+
+            let mut view = [
+                [0., 0., 0., 0.],
+                [0., 0., 0., 0.],
+                [0., 0., 0., 0.],
+                [0., 0., 0., 1.]
+            ];
+
+            let del = |i, j| if i == j { 1. } else { 0. };
+            let eps = |i, j, k| -> f32 {
+                ((i as i32 - j as i32) * (j as i32 - k as i32) * (k as i32 - i as i32)) as f32 / 2.
+            };
+
+            let mut cross_mat = [[0.; 3]; 3];
+
+            (0..3).for_each(|m| (0..3).for_each(|k| {
+                    cross_mat[m][k] = (0..3).map(|i|
+                        (0..3).map(|j| del(m, i) * eps(i, j, k) * r[j]).sum::<f32>()
+                    ).sum::<f32>();
+                }
+            ));
+
+            (0..3).for_each(|i| (0..3).for_each(|j| {
+                    view[j][i] = del(i, j) - 2. *
+                        (w * cross_mat[i][j] - (0..3).map(|k| cross_mat[i][k] * cross_mat[k][j]).sum::<f32>());
+                }
+            ));
+
+            data.u_view = view;
         }
 
         if let Some(Button::Mouse(button)) = e.press_args() {
@@ -189,9 +179,8 @@ fn main() {
 
             window.encoder.clear(&window.output_color, [0.3, 0.3, 0.3, 1.0]);
             window.encoder.clear_depth(&window.output_stencil, 1.0);
-// data.u_view = view_mat;
-            // data.u_view = first_person.camera(args.ext_dt).orthogonal();
-            data.view_pos = first_person.camera(args.ext_dt).position;
+
+            data.view_pos = quaternion::rotate_vector(view_orientation, [0., 0., -8.]);
 
             window.encoder.draw(&slice, &pso, &data);
         });

@@ -16,7 +16,10 @@ uniform vec3 light_pos;
 
 void main() {
     vec4 pos = u_model * vec4(a_pos, 1.0);
-    gl_Position = u_proj * u_view * pos;
+    gl_Position = u_view * pos;
+    gl_Position.z -= 8.;
+    gl_Position = u_proj * gl_Position;
+
     frag_pos = pos.xyz;
     normal = a_normal;
 
