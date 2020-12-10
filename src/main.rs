@@ -22,6 +22,7 @@ gfx_defines!{
 
     pipeline pipe {
         vbuf: gfx::VertexBuffer<Vertex> = (),
+        u_resolution: gfx::Global<[f32; 2]> = "u_resolution",
         u_proj: gfx::Global<[[f32; 4]; 4]> = "u_proj",
         u_view: gfx::Global<[[f32; 4]; 4]> = "u_view",
         u_model: gfx::Global<[[f32; 4]; 4]> = "u_model",
@@ -104,6 +105,7 @@ fn main() {
 
     let mut data = pipe::Data {
         vbuf:           vbuf.clone(),
+        u_resolution:   [1280., 720.],
         u_proj:         get_projection(&window),
         u_view:         vecmath::mat4_id(),
         u_model:        vecmath::mat4_id(),
@@ -118,10 +120,10 @@ fn main() {
 
     while let Some(e) = window.next() {
         if holding_mouse_button != None {
-            e.mouse_relative(|mut d| {
+            e.mouse_relative(|d| {
                 let front = quaternion::rotate_vector(view_orientation, [0., 0., 1.]);
                 let right = quaternion::rotate_vector(view_orientation, [1., 0., 0.]);
-                let mut s = [front[2], 0., -front[0]]; //cross-product of front and y-axis
+                let s = [front[2], 0., -front[0]]; //cross-product of front and y-axis
 
                 let q_x = quaternion::axis_angle::<f32>([0., 1., 0.], -d[0] as f32 * 0.01);
                 let q_y = quaternion::axis_angle::<f32>(vecmath::vec3_normalized(s), -d[1] as f32 * 0.01);
