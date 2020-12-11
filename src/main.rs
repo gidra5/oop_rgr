@@ -131,11 +131,11 @@ fn main() {
 
                 let q_x = quaternion::axis_angle::<f32>(
                     [0., 1., 0.], 
-                    d[0] as f32 * SENSATIVIY
+                    d[0] as f32 * reversed * SENSATIVIY
                 );
                 let q_y = quaternion::axis_angle::<f32>(
                     right, 
-                    d[1] as f32 * reversed * SENSATIVIY
+                    d[1] as f32 * SENSATIVIY
                 );
                 let q_z = quaternion::rotation_from_to(
                     right, 
