@@ -120,21 +120,32 @@ fn main() {
 
     while let Some(e) = window.next() {
         if holding_mouse_button != None {
-            e.mouse_relative(|d| {
-                let front = quaternion::rotate_vector(view_orientation, [0., 0., 1.]);
-                let right = quaternion::rotate_vector(view_orientation, [1., 0., 0.]);
-                let s = [front[2], 0., -front[0]]; //cross-product of front and y-axis
+            let (w, r) = view_orientation;
 
-                let q_x = quaternion::axis_angle::<f32>([0., 1., 0.], -d[0] as f32 * 0.01);
-                let q_y = quaternion::axis_angle::<f32>(vecmath::vec3_normalized(s), -d[1] as f32 * 0.01);
-                let q_z = quaternion::rotation_from_to(right, [right[0], 0., right[2]]);
+            e.mouse_relative(|d| {
+                let right = quaternion::rotate_vector(view_orientation, [1., 0., 0.]);
+
+                //calculate if camera is upside down
+                let reversed = (r[1] + (1. - r[1]) * (2. * w * w - 1.)).signum();        
+                const SENSATIVIY: f32 = -0.01;
+
+                let q_x = quaternion::axis_angle::<f32>(
+                    [0., 1., 0.], 
+                    d[0] as f32 * SENSATIVIY
+                );
+                let q_y = quaternion::axis_angle::<f32>(
+                    right, 
+                    d[1] as f32 * reversed * SENSATIVIY
+                );
+                let q_z = quaternion::rotation_from_to(
+                    right, 
+                    [right[0], 0., right[2]]
+                );
 
                 view_orientation = quaternion::mul(q_x, view_orientation);
                 view_orientation = quaternion::mul(q_y, view_orientation);
                 view_orientation = quaternion::mul(q_z, view_orientation);
             });
-
-            let (w, r) = view_orientation;
 
             let mut view = [
                 [0., 0., 0., 0.],

@@ -11,25 +11,25 @@ uniform vec3 view_pos;
 uniform vec3 light_pos;
 uniform vec3 light_color;
 
-// void main() {
-//     vec3 obj_color = vec3(0.0, 0.5, 0.0);
+void main() {
+    vec3 obj_color = vec3(0.0, 0.5, 0.0);
 
-//     vec3 norm = normalize(normal);
-//     vec3 light_dir = normalize(light_pos - frag_pos);
-//     vec3 view_dir = normalize(view_pos - frag_pos);
-//     vec3 reflect_dir = reflect(-light_dir, norm);
+    vec3 norm = normalize(normal);
+    vec3 light_dir = normalize(light_pos - frag_pos);
+    vec3 view_dir = normalize(view_pos - frag_pos);
+    vec3 reflect_dir = reflect(-light_dir, norm);
 
-//     // float diffusion = max(dot(norm, light_dir), 0.0);
-//     float ambience = 0.1;
+    // float diffusion = max(dot(norm, light_dir), 0.0);
+    float ambience = 0.1;
 
-//     float specular_strength = 0.1;
-//     float specularity = specular_strength * pow(max(dot(view_dir, reflect_dir), 0.0), 3);
+    float specular_strength = 0.1;
+    float specularity = specular_strength * pow(max(dot(view_dir, reflect_dir), 0.0), 3);
 
-//     frag_color = vec4(
-//         (ambience + diffusion + specularity) * light_color * obj_color,
-//         1.
-//     );
-// }
+    frag_color = vec4(
+        (ambience + diffusion + specularity) * light_color * obj_color,
+        1.
+    );
+}
 
 
 // Constants
@@ -85,22 +85,22 @@ float GetLight(vec3 p)
     return dif;
 }
 
-void main()
-{
-    u_resolution = vec2(1280., 720.);
-    vec2 uv = (gl_FragCoord.xy - .5 * u_resolution.xy) / u_resolution.y;
-    vec3 ro = vec3(0,1,0); // Ray Origin/Camera
-    vec3 rd = normalize(vec3(uv.x,uv.y,1)); // Ray Direction
+// void main()
+// {
+//     u_resolution = vec2(1280., 720.);
+//     vec2 uv = (gl_FragCoord.xy - .5 * u_resolution.xy) / u_resolution.y;
+//     vec3 ro = vec3(0,1,0); // Ray Origin/Camera
+//     vec3 rd = normalize(vec3(uv.x,uv.y,1)); // Ray Direction
  
-    float d = RayMarch(ro,rd); // Distance
+//     float d = RayMarch(ro,rd); // Distance
    
-    vec3 p = ro + rd * d;
-    float dif = GetLight(p); // Diffuse lighting
-    d*= .2;
-    vec3 color = vec3(dif);
-    //color += GetNormal(p);
-    //float color = GetLight(p);
+//     vec3 p = ro + rd * d;
+//     float dif = GetLight(p); // Diffuse lighting
+//     d*= .2;
+//     vec3 color = vec3(dif);
+//     //color += GetNormal(p);
+//     //float color = GetLight(p);
  
-    // Set the output color
-    frag_color = vec4(color,1.0);
-}
+//     // Set the output color
+//     frag_color = vec4(color,1.0);
+// }
