@@ -22,12 +22,10 @@ gfx_defines!{
 
     pipeline pipe {
         vbuf: gfx::VertexBuffer<Vertex> = (),
-        u_resolution: gfx::Global<[f32; 2]> = "u_resolution",
         u_proj: gfx::Global<[[f32; 4]; 4]> = "u_proj",
         u_view: gfx::Global<[[f32; 4]; 4]> = "u_view",
-        u_model: gfx::Global<[[f32; 4]; 4]> = "u_model",
+        scaling: gfx::Global<f32> = "scaling",
         view_pos: gfx::Global<[f32; 3]> = "view_pos",
-        light_pos: gfx::Global<[f32; 3]> = "light_pos",
         light_color: gfx::Global<[f32; 3]> = "light_color",
         out_color: gfx::RenderTarget<::gfx::format::Srgba8> = "frag_color",
         out_depth: gfx::DepthTarget<gfx::format::DepthStencil> =
@@ -105,12 +103,10 @@ fn main() {
 
     let mut data = pipe::Data {
         vbuf:           vbuf.clone(),
-        u_resolution:   [1280., 720.],
         u_proj:         get_projection(&window),
         u_view:         vecmath::mat4_id(),
-        u_model:        vecmath::mat4_id(),
-        view_pos:       [0., 0., -8.],
-        light_pos:      [50.; 3],
+        scaling:        1.,
+        view_pos:       [0., 0., -10.],
         light_color:    [1.; 3],
         out_color:      window.output_color.clone(),
         out_depth:      window.output_stencil.clone(),
@@ -125,17 +121,20 @@ fn main() {
             e.mouse_relative(|d| {
                 let right = quaternion::rotate_vector(view_orientation, [1., 0., 0.]);
 
+                // TODO: fix bugs from using reversed 
+                // or create other method to invert controls when uppside down
+
                 //calculate if camera is upside down
-                let reversed = (r[1] + (1. - r[1]) * (2. * w * w - 1.)).signum();        
+                let reversed = 1.; //(r[1] + (1. - r[1]) * (2. * w * w - 1.)).signum();        
                 const SENSATIVIY: f32 = -0.01;
 
                 let q_x = quaternion::axis_angle::<f32>(
                     [0., 1., 0.], 
-                    d[0] as f32 * reversed * SENSATIVIY
+                    d[0] as f32 * data.scaling * reversed * SENSATIVIY
                 );
                 let q_y = quaternion::axis_angle::<f32>(
                     right, 
-                    d[1] as f32 * SENSATIVIY
+                    d[1] as f32 * data.scaling * SENSATIVIY
                 );
                 let q_z = quaternion::rotation_from_to(
                     right, 
@@ -154,9 +153,11 @@ fn main() {
                 [0., 0., 0., 1.]
             ];
 
-            let del = |i, j| if i == j { 1. } else { 0. };
-            let eps = |i, j, k| -> f32 {
-                ((i as i32 - j as i32) * (j as i32 - k as i32) * (k as i32 - i as i32)) as f32 / 2.
+            let del = |i, j| (i == j) as i32 as f32 ;
+            let eps = |i, j, k| {
+                ((i as i32 - j as i32) * 
+                 (j as i32 - k as i32) * 
+                 (k as i32 - i as i32)) as f32 / 2.
             };
 
             let mut cross_mat = [[0.; 3]; 3];
@@ -177,6 +178,8 @@ fn main() {
             data.u_view = view;
         }
 
+        e.mouse_scroll(|d| data.scaling *= 0.95_f64.powf(d[1]) as f32);
+
         if let Some(Button::Mouse(button)) = e.press_args() {
             holding_mouse_button = Some(button);
         }
@@ -188,12 +191,10 @@ fn main() {
         };
 
         window.draw_3d(&e, |window| {
-            let args = e.render_args().unwrap();
-
             window.encoder.clear(&window.output_color, [0.3, 0.3, 0.3, 1.0]);
             window.encoder.clear_depth(&window.output_stencil, 1.0);
 
-            data.view_pos = quaternion::rotate_vector(view_orientation, [0., 0., -8.]);
+            data.view_pos = quaternion::rotate_vector(view_orientation, [0., 0., -10.]);
 
             window.encoder.draw(&slice, &pso, &data);
         });
