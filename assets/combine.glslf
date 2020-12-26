@@ -22,42 +22,73 @@ out vec4 frag_color;
 #define MAX_DIST 1000.
 #define MIN_DIST .0001
 
-float sdBox( vec3 p, vec3 b )
+//primitives are "centered" at (0, 0, 0)
+float box( vec3 p, vec3 half_sides )
 {
-  vec3 q = abs(p) - b;
+  vec3 q = abs(p) - half_sides;
   return length(max(q, 0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
 }
 
-float dist_scene(vec3 p) 
-{
-  // vec3 c = vec3(16);
-  // p = mod(p + 0.5 * c, c) - 0.5 * c;
+float sphere(vec3 p, float r) {
+  return length(p) - r;
+}
 
-  vec4 s = vec4(0, 0, 0, 1.2); //Sphere xyz is position w is radius
-  vec4 s2 = vec4(4, 4, 4, 1); //Sphere xyz is position w is radius
-  float sphereDist = length(p - s.xyz) - s.w;
-  float planeDist  = p.y + 2;
-  float boxDist = sdBox(p - s2.xyz, vec3(s2.w));
-  return min(min(sphereDist, planeDist), boxDist);
-  // return min(sphereDist, boxDist);
-  // return min(planeDist, boxDist);
-  // return  boxDist;
-  // return sphereDist;
-  // return planeDist;
-  // return sdBox(p - s.xyz, vec3(s.w));
+float plane(vec3 p, vec3 norm, float d) {
+  return dot(p, norm) - d;
+}
+
+float cylinder(vec3 p, vec3 dir, float r) {
+  return length(cross(p, dir)) - r;
+}
+
+//can_* fns show if primitive coulde be intersected
+bool can_plane(vec3 dir, vec3 p, vec3 norm, float d) {
+  return dot(dir, norm) * plane(p, norm, d) < 0.
+}
+
+bool can_cylinder(vec3 dir, vec3 p, vec3 c_dir, float r) {
+  return abs(dot(dir, cross(p, c_dir))) < r;
+}
+
+bool can_sphere(vec3 dir, vec3 p, float r) {
+  return length(cross(p, dir)) < r;
+}
+
+float dist_scene(vec3 p, vec3 dir) 
+{
+  float d; 
+
+  d = sphere(p - vec3(0.), 1);
+
+  return d;
 }
  
-vec3 dist_scene_gradient(vec3 p)
+vec3 dist_scene_gradient(vec3 p, vec3 dir)
 {
-    float d = dist_scene(p);
+    float d = dist_scene(p, dir);
     vec2 e = vec2(MIN_DIST,0);
     vec3 n = d - vec3(
-      dist_scene(p - e.xyy),
-      dist_scene(p - e.yxy),
-      dist_scene(p - e.yyx)
+      dist_scene(p - e.xyy, dir),
+      dist_scene(p - e.yxy, dir),
+      dist_scene(p - e.yyx, dir)
     );
  
     return normalize(n);
+}
+
+float raymarch(vec3 origin, vec3 dir) {
+  vec3 p = origin;
+  bool hit = false;
+
+  float d = 0.;
+  for (int i = 0; i < MAX_STEPS && d < MAX_DIST && !hit; ++i) {
+    float ds = dist_scene(p, ray_dir); 
+    d += ds;
+    p += dir * ds;
+    hit = ds < MIN_DIST;
+  }
+
+  return d;
 }
  
 vec4 light(vec3 pos, vec3 norm, vec3 color)
@@ -68,9 +99,7 @@ vec4 light(vec3 pos, vec3 norm, vec3 color)
     // vec3 reflect_dir = -reflect(light_dir, norm);
 
     float ambience = 0.02;
-   
-    float diffusion = dot(norm, light_dir); // Diffuse light
-    diffusion = clamp(diffusion, 0., 1.); // Clamp so it doesnt go below 0
+    float diffusion = 0.; 
 
     // float specular_strength = 0.1;
     // float specularity = specular_strength * pow(max(dot(view_dir, reflect_dir), 0.0), 3);
@@ -81,13 +110,16 @@ vec4 light(vec3 pos, vec3 norm, vec3 color)
 
     float d = 0.;
     for (int i = 0; i < MAX_STEPS && d < MAX_DIST && !hit; ++i) {
-      float ds = dist_scene(p); 
+      float ds = dist_scene(p, light_dir); 
       d += ds;
       p += light_dir * ds;
       hit = ds < MIN_DIST;
     }
      
-    if(d < length(light_pos - p)) diffusion = 0.;
+    if(d >= length(light_pos - p)) {
+      diffusion = dot(norm, light_dir); // Diffuse light
+      diffusion = clamp(diffusion, 0., 1.); // Clamp so it doesnt go below 0
+    }
  
     return vec4(
         (diffusion + ambience) * light_color * color,
@@ -107,33 +139,25 @@ void main() {
   vec3 normal;
   bool hit = false;
 
+  if (false) {
   // if (depth != 1.) {
-    // vec4 pos_texel = inverse(u_proj) * vec4(uv, depth, 1.);
-    // p = pos_texel.xyz / pos_texel.w;
-    // normal = texture(normal_texture, uv).xyz;
+    vec4 pos_texel = inverse(u_proj) * vec4(uv, depth, 1.);
+    p = pos_texel.xyz / pos_texel.w;
+    normal = texture(normal_texture, uv).xyz;
 
-    // hit = true;
-  // } 
-  // else {
+    hit = true;
+  } else {
     vec3 ray_origin = vec3(1, -1, 1) * u_view[3].xyz;
     vec3 ray_dir = normalize(ray_end);
 
-    p = ray_origin;
+    hit = raymarch(ray_origin, ray_dir) != 0.;
 
-    float d = 0.;
-    for (int i = 0; i < MAX_STEPS && d < MAX_DIST && !hit; ++i) {
-      float ds = dist_scene(p); 
-      d += ds;
-      p += ray_dir * ds;
-      hit = ds < MIN_DIST;
-    }
-
-    normal = dist_scene_gradient(p);
-  // }
+    normal = dist_scene_gradient(p, ray_dir);
+  }
 
   if (hit) {
       frag_color = light(p, normal, vec3(1.)); // Diffuse lighting
   }
 
-  frag_color = vec4(vec3(depth), 1);
+  // frag_color = vec4(vec3(depth), 1);
 }
