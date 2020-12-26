@@ -26,6 +26,7 @@ gfx_defines!{
     vertex Vertex3 {
         pos: [i8; 2] = "a_pos",
     }
+
     pipeline norm_pipe {
         vbuf:        gfx::VertexBuffer<  Vertex2                  > = (),
         u_proj:      gfx::Global      <  [[f32; 4]; 4]            > = "u_proj",
@@ -42,8 +43,9 @@ gfx_defines!{
         light_color: gfx::Global        <  [f32; 3]                 > = "light_color",
         norm_tex:    gfx::TextureSampler<  [f32; 4]                 > = "normal_texture",
         depth_tex:   gfx::TextureSampler<  f32                      > = "depth_texture",
-        // verticies:   gfx::TextureSampler<  [i8 ; 3]                 > = "vertex_buf",
-        // indicies:    gfx::TextureSampler<   u16                     > = "index_buf",
+        verticies:   gfx::TextureSampler<  [i32; 3]                 > = "vertex_buf",
+        indicies:    gfx::TextureSampler<  [u32; 3]                 > = "index_buf",
+        u_res:       gfx::Global        <  [f32; 2]                 > = "u_resolution",
         out_color:   gfx::RenderTarget  <::gfx::format::Srgba8      > = "frag_color",
     }
 }
@@ -61,7 +63,7 @@ use gfx::{
 use camera_controllers::CameraPerspective;
 
 fn main() {
-    const SENSATIVIY: f32 = -0.001; 
+    const SENSATIVIY: f32 = -0.001;
     const SPEED: f32 = 0.05;
 
     let opengl = OpenGL::V3_2;
@@ -93,24 +95,24 @@ fn main() {
     let (mut data2, mut data3, slice2) = setup(&window, scaling);
 
     let mut holding_mouse_button = None;
-    let mut mv = [0.; 4]; 
+    let mut mv = [0.; 4];
 
     while let Some(e) = window.next() {
         let front = quaternion::rotate_vector(view_orientation, [0., 0., 1.]);
         let right = quaternion::rotate_vector(view_orientation, [1., 0., 0.]);
-        
+
         if holding_mouse_button != None {
             e.mouse_relative(|d| {
                 let q_x = quaternion::axis_angle::<f32>(
-                    [0., 1., 0.], 
+                    [0., 1., 0.],
                     d[0] as f32 * SENSATIVIY
                 );
                 let q_y = quaternion::axis_angle::<f32>(
-                    right, 
+                    right,
                     d[1] as f32 * SENSATIVIY
                 );
                 let q_z = quaternion::rotation_from_to(
-                    right, 
+                    right,
                     [right[0], 0., right[2]]
                 );
 
@@ -118,7 +120,7 @@ fn main() {
                 view_orientation = quaternion::mul(q_y, view_orientation);
                 view_orientation = quaternion::mul(q_z, view_orientation);
             });
-            
+
             let rot = quat_to_mat3(view_orientation);
 
             (0..3).for_each(|i| (0..3).for_each(|j| {
@@ -193,8 +195,8 @@ fn quat_to_mat3((w, r): quaternion::Quaternion<f32>) -> vecmath::Matrix3<f32> {
 
     let del = |i, j| (i == j) as i32 as f32 ;
     let eps = |i, j, k| {
-        ((i as i32 - j as i32) * 
-         (j as i32 - k as i32) * 
+        ((i as i32 - j as i32) *
+         (j as i32 - k as i32) *
          (k as i32 - i as i32)) as f32 / 2.
     };
 
@@ -212,13 +214,13 @@ fn quat_to_mat3((w, r): quaternion::Quaternion<f32>) -> vecmath::Matrix3<f32> {
             (w * cross_mat[i][j] - (0..3).map(|k| cross_mat[i][k] * cross_mat[k][j]).sum::<f32>());
         }
     ));
-    
+
     mat
 }
 
-fn resize(window: &piston_window::PistonWindow, 
-    data2: &mut norm_pipe::Data<gfx_device_gl::Resources>, 
-    data3: &mut pipe::Data<gfx_device_gl::Resources>) 
+fn resize(window: &piston_window::PistonWindow,
+    data2: &mut norm_pipe::Data<gfx_device_gl::Resources>,
+    data3: &mut pipe::Data<gfx_device_gl::Resources>)
 {
     let piston_window::Size {
         width,
@@ -229,13 +231,13 @@ fn resize(window: &piston_window::PistonWindow,
 
     let norm_tex = factory.create_texture(
         gfx::texture::Kind::D2(width as u16, height as u16, AaMode::Single),
-        1, 
-        Bind::SHADER_RESOURCE | Bind::RENDER_TARGET, 
-        Usage::Data, 
+        1,
+        Bind::SHADER_RESOURCE | Bind::RENDER_TARGET,
+        Usage::Data,
         Some(ChannelType::Float)
     ).unwrap();
     let (_, depth_buf, depth_view) = factory.create_depth_stencil(width as u16, height as u16).unwrap();
-    
+
     data2.u_proj = {
         CameraPerspective {
             fov: 60.0, near_clip: 0.1, far_clip: 10.0,
@@ -251,8 +253,9 @@ fn resize(window: &piston_window::PistonWindow,
             aspect_ratio: (width / height) as f32
         }.projection()
     };
+    data3.u_res = [width as f32, height as f32];
     data3.depth_tex = (
-        depth_buf, 
+        depth_buf,
         factory.create_sampler(SamplerInfo::new(FilterMethod::Bilinear, WrapMode::Clamp))
     );
     data3.out_color = window.output_color.clone();
@@ -261,9 +264,9 @@ fn resize(window: &piston_window::PistonWindow,
 fn setup(
     window: &piston_window::PistonWindow,
     scaling: f32
-) 
--> (norm_pipe::Data<gfx_device_gl::Resources>, 
-    pipe::Data<gfx_device_gl::Resources>, 
+)
+-> (norm_pipe::Data<gfx_device_gl::Resources>,
+    pipe::Data<gfx_device_gl::Resources>,
     gfx::Slice<gfx_device_gl::Resources>
 ) {
     let piston_window::Size {
@@ -271,7 +274,7 @@ fn setup(
         height
     } = window.window.draw_size();
 
-    let ref mut factory = window.factory.clone();    
+    let ref mut factory = window.factory.clone();
 
     let vertex_data = vec![
         [ 1,  1,  1],
@@ -298,14 +301,14 @@ fn setup(
 
     let norm_tex = factory.create_texture(
         gfx::texture::Kind::D2(width as u16, height as u16, AaMode::Single),
-        1, 
-        Bind::SHADER_RESOURCE | Bind::RENDER_TARGET, 
-        Usage::Data, 
+        1,
+        Bind::SHADER_RESOURCE | Bind::RENDER_TARGET,
+        Usage::Data,
         Some(ChannelType::Float)
     ).unwrap();
 
     let (_, depth_buf, depth_view) = factory.create_depth_stencil(width as u16, height as u16).unwrap();
-    
+
     let data2 = norm_pipe::Data {
         vbuf:           normals_buf,
         u_proj:         {
@@ -319,10 +322,13 @@ fn setup(
             [0., 1.,  0.,      0.],
             [0., 0.,  1.,      0.],
             [0., 0., -6., scaling]
-        ], 
+        ],
         out_color:      factory.view_texture_as_render_target(&norm_tex, 0, None).unwrap(),
         out_depth:      depth_view,
     };
+
+    let i = (1..12).map(|i| [index_data[i] as u32, index_data[i + 1] as u32, index_data[i + 2] as u32])
+            .collect::<Vec<_>>();
 
     let data3 = pipe::Data {
         vbuf:           factory.create_vertex_buffer(&[
@@ -344,28 +350,33 @@ fn setup(
             [0., 1.,  0.,      0.],
             [0., 0.,  1.,      0.],
             [0., 0., -6., scaling]
-        ], 
+        ],
         norm_tex:       (
-            factory.view_texture_as_shader_resource::<Rgba16F>(&norm_tex, (0, 0), Swizzle::new()).unwrap(), 
+            factory.view_texture_as_shader_resource::<Rgba16F>(&norm_tex, (0, 0), Swizzle::new()).unwrap(),
             factory.create_sampler(SamplerInfo::new(FilterMethod::Bilinear, WrapMode::Clamp))
         ),
         depth_tex: (
-            depth_buf, 
+            depth_buf,
             factory.create_sampler(SamplerInfo::new(FilterMethod::Bilinear, WrapMode::Clamp))
         ),
-        // indicies:        (
-        //     factory.create_texture_immutable::<gfx::format::R8>(
-        //         gfx::texture::Kind::D2(2, 2, gfx::texture::AaMode::Single),
-        //         gfx::texture::Mipmap::Provided,
-        //         &[&index_data]).unwrap().1,
-        //     factory.create_sampler(SamplerInfo::new(FilterMethod::Bilinear, WrapMode::Clamp))
-        // ),
-        // verticies:        (
-        //     vert_buf.1, 
-        //     // factory.view_texture_as_shader_resource::<DepthStencil>(&depth_buf.0, (0, 0), Swizzle::new()).unwrap(), 
-        //     factory.create_sampler(SamplerInfo::new(FilterMethod::Bilinear, WrapMode::Clamp))
-        // ),
-        light_pos:      [2., 8.,  8.],
+        indicies:        (
+            factory.create_texture_immutable::<(R32_G32_B32, Uint)>(
+                gfx::texture::Kind::D1(12),
+                gfx::texture::Mipmap::Provided,
+                &[i.as_slice()]
+            ).unwrap().1,
+            factory.create_sampler(SamplerInfo::new(FilterMethod::Bilinear, WrapMode::Clamp))
+        ),
+        verticies:        (
+            factory.create_texture_immutable::<[i32; 3]>(
+                gfx::texture::Kind::D1(8),
+                gfx::texture::Mipmap::Provided,
+                &[vertex_data.iter().map(|x| [x[0] as u32, x[1] as u32, x[2] as u32]).collect::<Vec<_>>().as_slice()]
+            ).unwrap().1,
+            factory.create_sampler(SamplerInfo::new(FilterMethod::Bilinear, WrapMode::Clamp))
+        ),
+        u_res:          [width as f32, height as f32],
+        light_pos:      [2., 0.,  1.],
         light_color:    [0xfc as f32 / 255., 0x0f as f32 / 255., 0xc0 as f32 / 255.],
         out_color:      window.output_color.clone(),
     };
