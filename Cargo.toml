@@ -16,3 +16,7 @@ shader_version = "*"
 conrod_core = "*"
 conrod_piston = "*"
 gfx_device_gl = "*"
+
+# [dependencies.conrod]
+# version = "*"
+# features = ["piston"]
