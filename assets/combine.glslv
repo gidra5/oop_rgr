@@ -14,16 +14,14 @@ void main() {
         vec4(u_view[2].xyz, 0.),
         vec4(0., 0., 0., 1.)
     );
-
-    mat4 translate = mat4(
+    mat4 scale_inv = mat4(
         vec4(1., 0., 0., 0.), 
         vec4(0., 1., 0., 0.),
         vec4(0., 0., 1., 0.),
-        u_view[3]
+        vec4(0., 0., 0., u_view[3].w)
     );
 
-  // vec4 r1 = inverse(u_proj * rot) * vec4(a_pos, 0., 1.);
-  vec4 r1 =  transpose(rot) * inverse(u_proj) * vec4(a_pos, 0., 1.);
-  // vec4 r2 = inverse(u_proj * rot) * vec4(a_pos, 0., 1.);
+  vec4 r1 = transpose(rot) * inverse(u_proj) * scale_inv * vec4(a_pos, 0., 1.);
+  
   ray_end = vec3(-1, 1, -1) * r1.xyz / r1.w;// - r2.xyz / r2.w;
 }

@@ -31,7 +31,6 @@ gfx_defines!{
         vbuf:        gfx::VertexBuffer<  Vertex2                  > = (),
         u_proj:      gfx::Global      <  [[f32; 4]; 4]            > = "u_proj",
         u_view:      gfx::Global      <  [[f32; 4]; 4]            > = "u_view",
-        out_color:   gfx::RenderTarget<::gfx::format::Rgba16F     > = "frag_color",
         out_depth:   gfx::DepthTarget <  gfx::format::DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
     }
 
@@ -41,7 +40,6 @@ gfx_defines!{
         u_view:      gfx::Global        <  [[f32; 4]; 4]            > = "u_view",
         light_pos:   gfx::Global        <  [f32; 3]                 > = "light_pos",
         light_color: gfx::Global        <  [f32; 3]                 > = "light_color",
-        norm_tex:    gfx::TextureSampler<  [f32; 4]                 > = "normal_texture",
         depth_tex:   gfx::TextureSampler<  f32                      > = "depth_texture",
         verticies:   gfx::TextureSampler<  [i32; 3]                 > = "vertex_buf",
         indicies:    gfx::TextureSampler<  [u32; 3]                 > = "index_buf",
@@ -55,7 +53,6 @@ gfx_defines!{
 use piston_window::*;
 use gfx::{
     traits::*,
-    memory::{ Bind, Usage },
     format::*,
     texture::*,
     Slice,
@@ -90,26 +87,31 @@ fn main() {
     ).unwrap();
 
     let mut view_orientation = quaternion::id::<f32>();
-    let mut scaling = 4.;
+    let mut scaling = 1.;
 
     let (mut data2, mut data3, slice2) = setup(&window, scaling);
 
     let mut holding_mouse_button = None;
-    let mut mv = [0.; 4];
+    let mut mv = [0.; 6];
 
     while let Some(e) = window.next() {
-        let front = quaternion::rotate_vector(view_orientation, [0., 0., 1.]);
         let right = quaternion::rotate_vector(view_orientation, [1., 0., 0.]);
+        let mv_up    = [0., 1., 0.];
+        let mv_right = [right[0], 0., right[2]];
+        let mv_front = {
+            let front = quaternion::rotate_vector(view_orientation, [0., 0., 1.]);
+            [front[0], 0., front[2]]
+        };
 
         if holding_mouse_button != None {
             e.mouse_relative(|d| {
                 let q_x = quaternion::axis_angle::<f32>(
                     [0., 1., 0.],
-                    d[0] as f32 * SENSATIVIY
+                    d[0] as f32 / scaling * SENSATIVIY
                 );
                 let q_y = quaternion::axis_angle::<f32>(
                     right,
-                    d[1] as f32 * SENSATIVIY
+                    d[1] as f32 / scaling * SENSATIVIY
                 );
                 let q_z = quaternion::rotation_from_to(
                     right,
@@ -131,7 +133,7 @@ fn main() {
         }
 
         e.mouse_scroll(|d| {
-            scaling *= 0.95_f64.powf(d[1]) as f32;
+            scaling *= 0.95_f64.powf(-d[1]) as f32;
 
             data2.u_view[3][3] = scaling;
             data3.u_view[3][3] = scaling;
@@ -143,10 +145,12 @@ fn main() {
             },
             Some(Button::Keyboard(key)) => {
                 match key {
-                    Key::W => mv[0] = SPEED,
-                    Key::A => mv[1] = SPEED,
-                    Key::S => mv[2] = SPEED,
-                    Key::D => mv[3] = SPEED,
+                    Key::W     => mv[0] = SPEED,
+                    Key::A     => mv[1] = SPEED,
+                    Key::S     => mv[2] = SPEED,
+                    Key::D     => mv[3] = SPEED,
+                    Key::Space => mv[4] = SPEED,
+                    Key::LShift => mv[5] = SPEED,
                     _ => {}
                 }
             },
@@ -165,6 +169,8 @@ fn main() {
                     Key::A => mv[1] = 0.,
                     Key::S => mv[2] = 0.,
                     Key::D => mv[3] = 0.,
+                    Key::Space => mv[4] = 0.,
+                    Key::LShift => mv[5] = 0.,
                     _ => {}
                 }
             },
@@ -173,11 +179,10 @@ fn main() {
 
         window.draw_3d(&e, |window| {
             (0..3).for_each(|i| {
-                data2.u_view[3][i] += (mv[0] - mv[2]) * front[i] + (mv[1] - mv[3]) * right[i];
-                data3.u_view[3][i] += (mv[0] - mv[2]) * front[i] + (mv[1] - mv[3]) * right[i];
+                data2.u_view[3][i] += (mv[0] - mv[2]) * mv_front[i] + (mv[1] - mv[3]) * mv_right[i] + (mv[5] - mv[4]) * mv_up[i];
+                data3.u_view[3][i] += (mv[0] - mv[2]) * mv_front[i] + (mv[1] - mv[3]) * mv_right[i] + (mv[5] - mv[4]) * mv_up[i];
             });
 
-            window.encoder.clear(&data2.out_color, [1., 1., 1., 1.]);
             window.encoder.clear_depth(&data2.out_depth, 1.0);
 
             window.encoder.draw(&slice2, &norm_pso, &data2);
@@ -229,13 +234,6 @@ fn resize(window: &piston_window::PistonWindow,
 
     let ref mut factory = window.factory.clone();
 
-    let norm_tex = factory.create_texture(
-        gfx::texture::Kind::D2(width as u16, height as u16, AaMode::Single),
-        1,
-        Bind::SHADER_RESOURCE | Bind::RENDER_TARGET,
-        Usage::Data,
-        Some(ChannelType::Float)
-    ).unwrap();
     let (_, depth_buf, depth_view) = factory.create_depth_stencil(width as u16, height as u16).unwrap();
 
     data2.u_proj = {
@@ -244,7 +242,6 @@ fn resize(window: &piston_window::PistonWindow,
             aspect_ratio: (width / height) as f32
         }.projection()
     };
-    data2.out_color = factory.view_texture_as_render_target(&norm_tex, 0, None).unwrap();
     data2.out_depth = depth_view;
 
     data3.u_proj = {
@@ -299,14 +296,6 @@ fn setup(
     let (normals_buf, slice2) = factory.create_vertex_buffer_with_slice
         (vertex_data.iter().map(|x| Vertex2 { pos: *x }).collect::<Vec<_>>().as_slice(), index_data);
 
-    let norm_tex = factory.create_texture(
-        gfx::texture::Kind::D2(width as u16, height as u16, AaMode::Single),
-        1,
-        Bind::SHADER_RESOURCE | Bind::RENDER_TARGET,
-        Usage::Data,
-        Some(ChannelType::Float)
-    ).unwrap();
-
     let (_, depth_buf, depth_view) = factory.create_depth_stencil(width as u16, height as u16).unwrap();
 
     let data2 = norm_pipe::Data {
@@ -323,7 +312,6 @@ fn setup(
             [0., 0.,  1.,      0.],
             [0., 0., -6., scaling]
         ],
-        out_color:      factory.view_texture_as_render_target(&norm_tex, 0, None).unwrap(),
         out_depth:      depth_view,
     };
 
@@ -351,10 +339,6 @@ fn setup(
             [0., 0.,  1.,      0.],
             [0., 0., -6., scaling]
         ],
-        norm_tex:       (
-            factory.view_texture_as_shader_resource::<Rgba16F>(&norm_tex, (0, 0), Swizzle::new()).unwrap(),
-            factory.create_sampler(SamplerInfo::new(FilterMethod::Bilinear, WrapMode::Clamp))
-        ),
         depth_tex: (
             depth_buf,
             factory.create_sampler(SamplerInfo::new(FilterMethod::Bilinear, WrapMode::Clamp))
