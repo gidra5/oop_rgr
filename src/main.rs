@@ -6,7 +6,6 @@ extern crate camera_controllers;
 extern crate gfx;
 extern crate shader_version;
 extern crate quaternion;
-// #[macro_use] extern crate conrod;
 #[macro_use]
 extern crate conrod_core;
 extern crate conrod_piston;
@@ -14,11 +13,6 @@ extern crate conrod_piston;
 extern crate gfx_device_gl;
 
 use self::piston_window::texture::UpdateTexture;
-// use self::piston_window::OpenGL;
-// use self::piston_window::{Flip, G2d, G2dTexture, Texture, TextureSettings};
-
-mod load_mesh;
-// use load_mesh::*;
 
 gfx_defines!{
     vertex Vertex {
@@ -26,26 +20,54 @@ gfx_defines!{
     }
 
     pipeline pipe {
-        vbuf:        gfx::VertexBuffer  <  Vertex                   > = (),
-        u_proj:      gfx::Global        <  [[f32; 4]; 4]            > = "u_proj",
-        u_view:      gfx::Global        <  [[f32; 4]; 4]            > = "u_view",
-        light_pos:   gfx::Global        <  [f32; 3]                 > = "light_pos",
-        light_color: gfx::Global        <  [f32; 3]                 > = "light_color",
-        u_res:       gfx::Global        <  [f32; 2]                 > = "u_resolution",
-        out_color:   gfx::RenderTarget  <::gfx::format::Srgba8      > = "frag_color",
+        vbuf:            gfx::VertexBuffer  <  Vertex                   > = (),
+        u_proj:          gfx::Global        <  [[f32; 4]; 4]            > = "u_proj",
+        u_view:          gfx::Global        <  [[f32; 4]; 4]            > = "u_view",
+        light_pos:       gfx::Global        <  [f32; 3]                 > = "light_pos",
+        light_color:     gfx::Global        <  [f32; 3]                 > = "light_color",
+        u_res:           gfx::Global        <  [f32; 2]                 > = "u_resolution",
+        sphere_center:   gfx::Global        <  [f32; 3]                 > = "sphere_center",
+        plane_center:    gfx::Global        <  [f32; 3]                 > = "plane_center",
+        cylinder_center: gfx::Global        <  [f32; 3]                 > = "cylinder_center",
+        out_color:       gfx::RenderTarget  <::gfx::format::Srgba8      > = "frag_color",
     }
 }
 
 widget_ids!{
     pub struct Ids {
-        button_light,
-        button_light_pos,
-        button_light_color,
-        button_change_quality,
-        button_change_quality_max_steps,
-        button_change_quality_max_dist,
-        button_change_quality_min_dist,
-        button_change_quality_light_soft_samples,
+        background,
+
+        toggle_light_options,
+
+        text_light_pos,
+        xypad_light_pos_dx_dz,
+        slider_light_pos_dy,
+
+        text_light_color,
+        xypad_light_color_hue_brightness,
+        slider_light_color_r,
+        slider_light_color_g,
+        slider_light_color_b,
+
+        // toggle_change_quality,
+        // dialer_change_quality_max_steps,
+        // dialer_change_quality_max_dist,
+        // dialer_change_quality_min_dist,
+        // dialer_change_quality_light_soft_samples,
+        toggle_shapes_position,
+
+        text_plane_pos,
+        xypad_plane_pos_dx_dz,
+        slider_plane_pos_dy,
+
+        text_sphere_pos,
+        xypad_sphere_pos_dx_dz,
+        slider_sphere_pos_dy,
+
+        text_cylinder_pos,
+        xypad_cylinder_pos_dx_dz,
+        slider_cylinder_pos_dy,
+
         toggle_light_follow,
     }
 }
@@ -53,6 +75,8 @@ widget_ids!{
 //----------------------------------------
 
 use piston_window::*;
+use conrod_core::*;
+
 use gfx::{
     traits::*,
     Slice,
@@ -61,15 +85,22 @@ use camera_controllers::CameraPerspective;
 
 fn main() {
     const SENSATIVIY: f32 = -0.001;
-    const SPEED: f32 = 0.05;
+    const SPEED: f32 = 10.;
+    let mut view_orientation = quaternion::id::<f32>();
+    let mut scaling = 1.;
+    let mut holding_mouse_button = None;
+    let mut mv = [0.; 6];
+    let mut shape_menu = false;
+    let mut light_menu = false;
+    let mut light_follow = false;
 
     let opengl = OpenGL::V3_2;
 
-    let mut window: PistonWindow =
-        WindowSettings::new("piston: cube", [1280, 720])
+    // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1280, 720])
+    let mut window: PistonWindow = WindowSettings::new("piston: cube", [1920, 1080])
         .exit_on_esc(true)
-        .samples(4)
         .graphics_api(opengl)
+        .fullscreen(true)
         .build()
         .unwrap();
 
@@ -81,16 +112,47 @@ fn main() {
         pipe::new()
     ).unwrap();
 
-    let mut view_orientation = quaternion::id::<f32>();
-    let mut scaling = 1.;
-
     let mut data = setup(&window, scaling);
-    // let (mut ui, mut image_map, mut texture_context, mut glyph_cache, mut text_texture_cache, mut text_vertex_data)
-    //   = setup_ui(&mut window);
-    let mut ui = setup_ui(&mut window);
 
-    let mut holding_mouse_button = None;
-    let mut mv = [0.; 6];
+    let mut texture_context = window.create_texture_context();
+    let (mut ui, mut glyph_cache, mut text_texture_cache, mut text_vertex_data) = {
+        let piston_window::Size {
+            width,
+            height
+        } = window.window.draw_size();
+        
+        // construct our `Ui`.
+        let mut ui = conrod_core::UiBuilder::new([width, height])
+            // .theme(conrod_example_shared::theme())
+            .build();
+    
+        // Add a `Font` to the `Ui`'s `font::Map` from file.
+    
+        ui.fonts.insert_from_file("D:\\Projects\\oop-rgr\\assets\\FiraSans-Regular.ttf").unwrap();
+    
+        // Create a texture to use for efficiently caching text on the GPU.
+        let text_vertex_data = Vec::new();
+        let (glyph_cache, text_texture_cache) = {
+            const SCALE_TOLERANCE: f32 = 0.1;
+            const POSITION_TOLERANCE: f32 = 0.1;
+            let cache = conrod_core::text::GlyphCache::builder()
+                .dimensions(width as u32, height as u32)
+                .scale_tolerance(SCALE_TOLERANCE)
+                .position_tolerance(POSITION_TOLERANCE)
+                .build();
+            let buffer_len = width as usize * width as usize;
+            let init = vec![128; buffer_len];
+            let settings = TextureSettings::new();
+            let texture =
+                G2dTexture::from_memory_alpha(&mut texture_context, &init, width as u32, height as u32, &settings)
+                    .unwrap();
+            (cache, texture)
+        };
+        
+        (ui, glyph_cache, text_texture_cache, text_vertex_data)
+    };
+    let ids = Ids::new(ui.widget_id_generator());
+    let image_map = conrod_core::image::Map::new();
 
     while let Some(e) = window.next() {
         let right = quaternion::rotate_vector(view_orientation, [1., 0., 0.]);
@@ -174,12 +236,6 @@ fn main() {
         }
 
         window.draw_3d(&e, |window| {
-            (0..3).for_each(|i| {
-                data.u_view[3][i] +=
-                    (mv[0] - mv[2]) * mv_front[i] +
-                    (mv[1] - mv[3]) * mv_right[i] +
-                    (mv[5] - mv[4]) * mv_up[i];
-            });
             window.encoder.draw(&Slice::new_match_vertex_buffer(&data.vbuf), &pso, &data);
         });
 
@@ -194,317 +250,226 @@ fn main() {
         }
 
         e.update(|args| {
-            // (0..3).for_each(|i| {
-            //     data.u_view[3][i] += args.dt as f32 * (
-            //         (mv[0] - mv[2]) * mv_front[i] +
-            //         (mv[1] - mv[3]) * mv_right[i] +
-            //         (mv[5] - mv[4]) * mv_up[i]
-            //     ) ;
-            // });
+            let k = 5. * args.dt as f32;
+
+            (0..3).for_each(|i| {
+                data.u_view[3][i] += args.dt as f32 * (
+                    (mv[0] - mv[2]) * mv_front[i] +
+                    (mv[1] - mv[3]) * mv_right[i] +
+                    (mv[5] - mv[4]) * mv_up[i]
+                ) ;
+            });
+
+            if light_follow {
+                data.light_pos = vecmath::vec3_mul(vecmath::vec3_add(
+                    [data.u_view[3][0], data.u_view[3][1], data.u_view[3][2]], 
+                    quaternion::rotate_vector(view_orientation, [0., 0., -2.])
+                ), [1., -1., 1.]);
+            }
 
             let mut ui = ui.set_widgets();
 
-            // {
-            //     use conrod_core::{widget, Colorable, Labelable, Positionable, Sizeable, Widget};
-            //     use std::iter::once;
+            {
+                const MARGIN: conrod_core::Scalar = 30.0;
+                widget::bordered_rectangle::BorderedRectangle::new([200., 800.])
+                    .top_left_with_margin_on(ui.window, MARGIN)
+                    .set(ids.background, &mut ui);
 
-            //     const MARGIN: conrod_core::Scalar = 30.0;
-            //     const SHAPE_GAP: conrod_core::Scalar = 50.0;
-            //     const TITLE_SIZE: conrod_core::FontSize = 42;
-            //     const SUBTITLE_SIZE: conrod_core::FontSize = 32;
+                for toggled in widget::Toggle::new(light_menu)
+                    .color(Color::Rgba(0.5, 0.5, 0.5, 0.5))
+                    .label("Light options")
+                    .mid_top_with_margin_on(ids.background, MARGIN)
+                    .w_h(160., 30.)
+                    .set(ids.toggle_light_options, &mut ui)
+                {
+                    light_menu = toggled;
+                }
+                if light_menu {
+                    widget::Text::new("Color")
+                        .align_middle_x_of(ids.toggle_light_options)
+                        .down(20.)
+                        .set(ids.text_light_pos, &mut ui);
 
-            //     // `Canvas` is a widget that provides some basic functionality for laying out children widgets.
-            //     // By default, its size is the size of the window. We'll use this as a background for the
-            //     // following widgets, as well as a scrollable container for the children widgets.
-            //     const TITLE: &'static str = "All Widgets";
-            //     widget::Canvas::new()
-            //         .pad(MARGIN)
-            //         .scroll_kids_vertically()
-            //         .set(ids.canvas, ui);
+                    for g in widget::Slider::new(data.light_color[1], 0., 1.)
+                        .w_h(10., 50.)
+                        .align_middle_x_of(ids.toggle_light_options)
+                        .down(20.)
+                        .set(ids.slider_light_color_g, &mut ui)
+                    {
+                        data.light_color[1] = g;
+                    }
+                    for b in widget::Slider::new(data.light_color[2], 0., 1.)
+                        .w_h(10., 50.)
+                        .right(10.)
+                        .set(ids.slider_light_color_b, &mut ui)
+                    {
+                        data.light_color[2] = b;
+                    }
+                    for r in widget::Slider::new(data.light_color[0], 0., 1.)
+                        .w_h(10., 50.)
+                        .left_from(ids.slider_light_color_g, 10.)
+                        .set(ids.slider_light_color_r, &mut ui)
+                    {
+                        data.light_color[0] = r;
+                    }
 
-            //     ////////////////
-            //     ///// TEXT /////
-            //     ////////////////
+                    widget::Text::new("Position")
+                        .down(20.)
+                        .align_middle_x_of(ids.text_light_pos)
+                        .set(ids.text_light_color, &mut ui);
+                    
+                    for dy in widget::Slider::new(0., -1., 1.)
+                        .w_h(10., 50.)
+                        .align_right_of(ids.slider_light_color_b)
+                        .down(20.)
+                        .set(ids.slider_light_pos_dy, &mut ui)
+                    {
+                        data.light_pos[1] += k * dy;
+                    }
+                    for (dx, dz) in widget::XYPad::new(0., -1., 1., 0., -1., 1.) 
+                        .w_h(50., 50.)
+                        .left(10.)
+                        .set(ids.xypad_light_pos_dx_dz, &mut ui)
+                    {
+                        data.light_pos[2] += k * dz;
+                        data.light_pos[0] -= k * dx;
+                    }
+                }
 
-            //     // We'll demonstrate the `Text` primitive widget by using it to draw a title and an
-            //     // introduction to the example.
-            //     widget::Text::new(TITLE)
-            //         .font_size(TITLE_SIZE)
-            //         .mid_top_of(ids.canvas)
-            //         .set(ids.title, ui);
+                for toggled in widget::Toggle::new(shape_menu)
+                    .color(Color::Rgba(0.5, 0.5, 0.5, 0.5))
+                    .label("Shape positioning")
+                    .w_h(160., 30.)
+                    .down(20.)
+                    .align_left_of(ids.toggle_light_options)
+                    .set(ids.toggle_shapes_position, &mut ui)
+                {
+                    shape_menu = toggled;
+                }
 
-            //     const INTRODUCTION: &'static str =
-            //         "This example aims to demonstrate all widgets that are provided by conrod.\
-            //         \n\nThe widget that you are currently looking at is the Text widget. The Text widget \
-            //         is one of several special \"primitive\" widget types which are used to construct \
-            //         all other widget types. These types are \"special\" in the sense that conrod knows \
-            //         how to render them via `conrod_core::render::Primitive`s.\
-            //         \n\nScroll down to see more widgets!";
-            //     widget::Text::new(INTRODUCTION)
-            //         .padded_w_of(ids.canvas, MARGIN)
-            //         .down(60.0)
-            //         .align_middle_x_of(ids.canvas)
-            //         .center_justify()
-            //         .line_spacing(5.0)
-            //         .set(ids.introduction, ui);
+                if shape_menu {
+                    widget::Text::new("Plane position")
+                        .align_middle_x_of(ids.toggle_light_options)
+                        .down(20.)
+                        .set(ids.text_plane_pos, &mut ui);
 
-            //     ////////////////////////////
-            //     ///// Lines and Shapes /////
-            //     ////////////////////////////
+                    for dy in widget::Slider::new(0., -1., 1.)
+                        .w_h(10., 50.)
+                        .align_right_of(ids.slider_light_color_b)
+                        .down(20.)
+                        .set(ids.slider_plane_pos_dy, &mut ui)
+                    {
+                        data.plane_center[1] += k * dy;
+                    }
+                    for (dx, dz) in widget::XYPad::new(0., -1., 1., 0., -1., 1.) 
+                        .w_h(50., 50.)
+                        .left(10.)
+                        .set(ids.xypad_plane_pos_dx_dz, &mut ui)
+                    {
+                        data.plane_center[2] += k * dz;
+                        data.plane_center[0] -= k * dx;
+                    }
+                    
+                    widget::Text::new("Sphere position")
+                        .align_middle_x_of(ids.toggle_light_options)
+                        .down(20.)
+                        .set(ids.text_sphere_pos, &mut ui);
 
-            //     widget::Text::new("Lines and Shapes")
-            //         .down(70.0)
-            //         .align_middle_x_of(ids.canvas)
-            //         .font_size(SUBTITLE_SIZE)
-            //         .set(ids.shapes_title, ui);
+                    for dy in widget::Slider::new(0., -1., 1.)
+                        .w_h(10., 50.)
+                        .align_right_of(ids.slider_light_color_b)
+                        .down(20.)
+                        .set(ids.slider_sphere_pos_dy, &mut ui)
+                    {
+                        data.sphere_center[1] += k * dy;
+                    }
+                    for (dx, dz) in widget::XYPad::new(0., -1., 1., 0., -1., 1.) 
+                        .w_h(50., 50.)
+                        .left(10.)
+                        .set(ids.xypad_sphere_pos_dx_dz, &mut ui)
+                    {
+                        data.sphere_center[2] += k * dz;
+                        data.sphere_center[0] -= k * dx;
+                    }
 
-            //     // Lay out the shapes in two horizontal columns.
-            //     //
-            //     // TODO: Have conrod provide an auto-flowing, fluid-list widget that is more adaptive for these
-            //     // sorts of situations.
-            //     widget::Canvas::new()
-            //         .down(0.0)
-            //         .align_middle_x_of(ids.canvas)
-            //         .kid_area_w_of(ids.canvas)
-            //         .h(360.0)
-            //         .color(conrod_core::color::TRANSPARENT)
-            //         .pad(MARGIN)
-            //         .flow_down(&[
-            //             (ids.shapes_left_col, widget::Canvas::new()),
-            //             (ids.shapes_right_col, widget::Canvas::new()),
-            //         ])
-            //         .set(ids.shapes_canvas, ui);
+                    widget::Text::new("Cylinder position")
+                        .align_middle_x_of(ids.toggle_light_options)
+                        .down(20.)
+                        .set(ids.text_cylinder_pos, &mut ui);
 
-            //     let shapes_canvas_rect = ui.rect_of(ids.shapes_canvas).unwrap();
-            //     let w = shapes_canvas_rect.w();
-            //     let h = shapes_canvas_rect.h() * 5.0 / 6.0;
-            //     let radius = 10.0;
-            //     widget::RoundedRectangle::fill([w, h], radius)
-            //         .color(conrod_core::color::CHARCOAL.alpha(0.25))
-            //         .middle_of(ids.shapes_canvas)
-            //         .set(ids.rounded_rectangle, ui);
-
-            //     let start = [-40.0, -40.0];
-            //     let end = [40.0, 40.0];
-            //     widget::Line::centred(start, end)
-            //         .mid_left_of(ids.shapes_left_col)
-            //         .set(ids.line, ui);
-
-            //     let left = [-40.0, -40.0];
-            //     let top = [0.0, 40.0];
-            //     let right = [40.0, -40.0];
-            //     let points = once(left).chain(once(top)).chain(once(right));
-            //     widget::PointPath::centred(points)
-            //         .right(SHAPE_GAP)
-            //         .set(ids.point_path, ui);
-
-            //     widget::Rectangle::fill([80.0, 80.0])
-            //         .right(SHAPE_GAP)
-            //         .set(ids.rectangle_fill, ui);
-
-            //     widget::Rectangle::outline([80.0, 80.0])
-            //         .right(SHAPE_GAP)
-            //         .set(ids.rectangle_outline, ui);
-
-            //     let bl = [-40.0, -40.0];
-            //     let tl = [-20.0, 40.0];
-            //     let tr = [20.0, 40.0];
-            //     let br = [40.0, -40.0];
-            //     let points = once(bl).chain(once(tl)).chain(once(tr)).chain(once(br));
-            //     widget::Polygon::centred_fill(points)
-            //         .mid_left_of(ids.shapes_right_col)
-            //         .set(ids.trapezoid, ui);
-
-            //     widget::Oval::fill([40.0, 80.0])
-            //         .right(SHAPE_GAP + 20.0)
-            //         .align_middle_y()
-            //         .set(ids.oval_fill, ui);
-
-            //     widget::Oval::outline([80.0, 40.0])
-            //         .right(SHAPE_GAP + 20.0)
-            //         .align_middle_y()
-            //         .set(ids.oval_outline, ui);
-
-            //     widget::Circle::fill(40.0)
-            //         .right(SHAPE_GAP)
-            //         .align_middle_y()
-            //         .set(ids.circle, ui);
-
-            //     /////////////////
-            //     ///// Image /////
-            //     /////////////////
-
-            //     widget::Text::new("Image")
-            //         .down_from(ids.shapes_canvas, MARGIN)
-            //         .align_middle_x_of(ids.canvas)
-            //         .font_size(SUBTITLE_SIZE)
-            //         .set(ids.image_title, ui);
-
-            //     const LOGO_SIDE: conrod_core::Scalar = 144.0;
-            //     widget::Image::new(app.rust_logo)
-            //         .w_h(LOGO_SIDE, LOGO_SIDE)
-            //         .down(60.0)
-            //         .align_middle_x_of(ids.canvas)
-            //         .set(ids.rust_logo, ui);
-
-            //     /////////////////////////////////
-            //     ///// Button, XYPad, Toggle /////
-            //     /////////////////////////////////
-
-            //     widget::Text::new("Button, XYPad and Toggle")
-            //         .down_from(ids.rust_logo, 60.0)
-            //         .align_middle_x_of(ids.canvas)
-            //         .font_size(SUBTITLE_SIZE)
-            //         .set(ids.button_title, ui);
-
-            //     let ball_x_range = ui.kid_area_of(ids.canvas).unwrap().w();
-            //     let ball_y_range = ui.h_of(ui.window).unwrap() * 0.5;
-            //     let min_x = -ball_x_range / 3.0;
-            //     let max_x = ball_x_range / 3.0;
-            //     let min_y = -ball_y_range / 3.0;
-            //     let max_y = ball_y_range / 3.0;
-            //     let side = 130.0;
-
-            //     for _press in widget::Button::new()
-            //         .label("PRESS ME")
-            //         .mid_left_with_margin_on(ids.canvas, MARGIN)
-            //         .down_from(ids.button_title, 60.0)
-            //         .w_h(side, side)
-            //         .set(ids.button, ui)
-            //     {
-            //         let x = rand::random::<conrod_core::Scalar>() * (max_x - min_x) - max_x;
-            //         let y = rand::random::<conrod_core::Scalar>() * (max_y - min_y) - max_y;
-            //         app.ball_xy = [x, y];
-            //     }
-
-            //     for (x, y) in widget::XYPad::new(app.ball_xy[0], min_x, max_x, app.ball_xy[1], min_y, max_y)
-            //         .label("BALL XY")
-            //         .wh_of(ids.button)
-            //         .align_middle_y_of(ids.button)
-            //         .align_middle_x_of(ids.canvas)
-            //         .parent(ids.canvas)
-            //         .set(ids.xy_pad, ui)
-            //     {
-            //         app.ball_xy = [x, y];
-            //     }
-
-            //     let is_white = app.ball_color == conrod_core::color::WHITE;
-            //     let label = if is_white { "WHITE" } else { "BLACK" };
-            //     for is_white in widget::Toggle::new(is_white)
-            //         .label(label)
-            //         .label_color(if is_white {
-            //             conrod_core::color::WHITE
-            //         } else {
-            //             conrod_core::color::LIGHT_CHARCOAL
-            //         })
-            //         .mid_right_with_margin_on(ids.canvas, MARGIN)
-            //         .align_middle_y_of(ids.button)
-            //         .set(ids.toggle, ui)
-            //     {
-            //         app.ball_color = if is_white {
-            //             conrod_core::color::WHITE
-            //         } else {
-            //             conrod_core::color::BLACK
-            //         };
-            //     }
-
-            //     let ball_x = app.ball_xy[0];
-            //     let ball_y = app.ball_xy[1] - max_y - side * 0.5 - MARGIN;
-            //     widget::Circle::fill(20.0)
-            //         .color(app.ball_color)
-            //         .x_y_relative_to(ids.xy_pad, ball_x, ball_y)
-            //         .set(ids.ball, ui);
-
-            //     //////////////////////////////////
-            //     ///// NumberDialer, PlotPath /////
-            //     //////////////////////////////////
-
-            //     widget::Text::new("NumberDialer and PlotPath")
-            //         .down_from(ids.xy_pad, max_y - min_y + side * 0.5 + MARGIN)
-            //         .align_middle_x_of(ids.canvas)
-            //         .font_size(SUBTITLE_SIZE)
-            //         .set(ids.dialer_title, ui);
-
-            //     // Use a `NumberDialer` widget to adjust the frequency of the sine wave below.
-            //     let min = 0.5;
-            //     let max = 200.0;
-            //     let decimal_precision = 1;
-            //     for new_freq in widget::NumberDialer::new(app.sine_frequency, min, max, decimal_precision)
-            //         .down(60.0)
-            //         .align_middle_x_of(ids.canvas)
-            //         .w_h(160.0, 40.0)
-            //         .label("F R E Q")
-            //         .set(ids.number_dialer, ui)
-            //     {
-            //         app.sine_frequency = new_freq;
-            //     }
-
-            //     // Use the `PlotPath` widget to display a sine wave.
-            //     let min_x = 0.0;
-            //     let max_x = std::f32::consts::PI * 2.0 * app.sine_frequency;
-            //     let min_y = -1.0;
-            //     let max_y = 1.0;
-            //     widget::PlotPath::new(min_x, max_x, min_y, max_y, f32::sin)
-            //         .kid_area_w_of(ids.canvas)
-            //         .h(240.0)
-            //         .down(60.0)
-            //         .align_middle_x_of(ids.canvas)
-            //         .set(ids.plot_path, ui);
-
-            //     /////////////////////
-            //     ///// Scrollbar /////
-            //     /////////////////////
-
-            //     widget::Scrollbar::y_axis(ids.canvas)
-            //         .auto_hide(true)
-            //         .set(ids.canvas_scrollbar, ui);
-            // }
+                    for dy in widget::Slider::new(0., -1., 1.)
+                        .w_h(10., 50.)
+                        .align_right_of(ids.slider_light_color_b)
+                        .down(20.)
+                        .set(ids.slider_cylinder_pos_dy, &mut ui)
+                    {
+                        data.cylinder_center[1] += k * dy;
+                    }
+                    for (dx, dz) in widget::XYPad::new(0., -1., 1., 0., -1., 1.) 
+                        .w_h(50., 50.)
+                        .left(10.)
+                        .set(ids.xypad_cylinder_pos_dx_dz, &mut ui)
+                    {
+                        data.cylinder_center[2] += k * dz;
+                        data.cylinder_center[0] -= k * dx;
+                    }
+                }
+                
+                for toggled in widget::Toggle::new(light_follow)
+                    .color(Color::Rgba(0.5, 0.5, 0.5, 0.5))
+                    .label("Light follows you")
+                    .w_h(160., 30.)
+                    .down(20.)
+                    .align_left_of(ids.toggle_light_options)
+                    .set(ids.toggle_light_follow, &mut ui)
+                {
+                    light_follow = toggled;
+                }
+            }
         });
 
-        // window.draw_2d(&e, |context, graphics, device| {
-        //     if let Some(primitives) = ui.draw_if_changed() {
-        //         // A function used for caching glyphs to the texture cache.
-        //         let cache_queued_glyphs = |_graphics: &mut G2d,
-        //                                 cache: &mut G2dTexture,
-        //                                 rect: conrod_core::text::rt::Rect<u32>,
-        //                                 data: &[u8]| {
-        //             let offset = [rect.min.x, rect.min.y];
-        //             let size = [rect.width(), rect.height()];
-        //             let format = piston_window::texture::Format::Rgba8;
-        //             text_vertex_data.clear();
-        //             text_vertex_data.extend(data.iter().flat_map(|&b| vec![255, 255, 255, b]));
-        //             UpdateTexture::update(
-        //                 cache,
-        //                 &mut texture_context,
-        //                 format,
-        //                 &text_vertex_data[..],
-        //                 offset,
-        //                 size,
-        //             )
-        //             .expect("failed to update texture")
-        //         };
+        window.draw_2d(&e, |context, graphics, device| {
+                // A function used for caching glyphs to the texture cache.
+                let cache_queued_glyphs = |_graphics: &mut G2d,
+                                        cache: &mut G2dTexture,
+                                        rect: conrod_core::text::rt::Rect<u32>,
+                                        data: &[u8]| {
+                    let offset = [rect.min.x, rect.min.y];
+                    let size = [rect.width(), rect.height()];
+                    let format = piston_window::texture::Format::Rgba8;
+                    text_vertex_data.clear();
+                    text_vertex_data.extend(data.iter().flat_map(|&b| vec![255, 255, 255, b]));
+                    UpdateTexture::update(
+                        cache,
+                        &mut texture_context,
+                        format,
+                        &text_vertex_data[..],
+                        offset,
+                        size,
+                    )
+                    .expect("failed to update texture")
+                };
 
-        //         // Specify how to get the drawable texture from the image. In this case, the image
-        //         // *is* the texture.
-        //         fn texture_from_image<T>(img: &T) -> &T {
-        //             img
-        //         }
+                // Specify how to get the drawable texture from the image. In this case, the image
+                // *is* the texture.
+                fn texture_from_image<T>(img: &T) -> &T {
+                    img
+                }
 
-        //         // Draw the conrod `render::Primitives`.
-        //         conrod_piston::draw::primitives(
-        //             primitives,
-        //             context,
-        //             graphics,
-        //             &mut text_texture_cache,
-        //             &mut glyph_cache,
-        //             &image_map,
-        //             cache_queued_glyphs,
-        //             texture_from_image,
-        //         );
+                // Draw the conrod `render::Primitives`.
+                conrod_piston::draw::primitives(
+                    ui.draw(),
+                    context,
+                    graphics,
+                    &mut text_texture_cache,
+                    &mut glyph_cache,
+                    &image_map,
+                    cache_queued_glyphs,
+                    texture_from_image,
+                );
 
-        //         texture_context.encoder.flush(device);
-        //     }
-        // });
+                texture_context.encoder.flush(device);
+        });
 
         if let Some(_) = e.resize_args() {
             resize(&window, &mut data);
@@ -548,8 +513,6 @@ fn resize(window: &piston_window::PistonWindow,
         height
     } = window.window.draw_size();
 
-    let ref mut factory = window.factory.clone();
-
     data.u_proj = {
         CameraPerspective {
             fov: 60.0, near_clip: 0.1, far_clip: 10.0,
@@ -560,10 +523,7 @@ fn resize(window: &piston_window::PistonWindow,
     data.out_color = window.output_color.clone();
 }
 
-fn setup(
-    window: &piston_window::PistonWindow,
-    scaling: f32
-) -> pipe::Data<gfx_device_gl::Resources>
+fn setup(window: &piston_window::PistonWindow, scaling: f32) -> pipe::Data<gfx_device_gl::Resources>
 {
     let piston_window::Size {
         width,
@@ -573,90 +533,36 @@ fn setup(
     let ref mut factory = window.factory.clone();
 
     let data = pipe::Data {
-        vbuf:           factory.create_vertex_buffer(&[
-                Vertex { pos: [ 1,  1] },
-                Vertex { pos: [-1,  1] },
-                Vertex { pos: [ 1, -1] },
-                Vertex { pos: [-1, -1] },
-                Vertex { pos: [-1,  1] },
-                Vertex { pos: [ 1, -1] }
-            ]),
-        u_proj:         {
+        vbuf: factory.create_vertex_buffer(&[
+            Vertex { pos: [ 1,  1] },
+            Vertex { pos: [-1,  1] },
+            Vertex { pos: [ 1, -1] },
+            Vertex { pos: [-1, -1] },
+            Vertex { pos: [-1,  1] },
+            Vertex { pos: [ 1, -1] }
+        ]),
+        u_proj: {
             CameraPerspective {
                 fov: 60.0, near_clip: 0.1, far_clip: 10.0,
                 aspect_ratio: (width / height) as f32
             }.projection()
         },
-        u_view:         [
+        u_view: [
             [1., 0.,  0.,      0.],
             [0., 1.,  0.,      0.],
             [0., 0.,  1.,      0.],
             [0., 0., -6., scaling]
         ],
-        u_res:          [width as f32, height as f32],
-        light_pos:      [2., 0.,  1.],
-        light_color:    [0xfc as f32 / 255., 0x0f as f32 / 255., 0xc0 as f32 / 255.],
+        u_res:           [width as f32, height as f32],
+
+        light_pos:       [2., 0.,  1.],
+        light_color:     [0xfc as f32 / 255., 0x0f as f32 / 255., 0xc0 as f32 / 255.],
+        sphere_center:   [-1.,  0., 0.],
+        plane_center:    [ 0., -1., 0.],
+        cylinder_center: [ 1.,  0., 4.],
+
         out_color:      window.output_color.clone(),
     };
 
     data
-}
-
-fn setup_ui(window: &mut piston_window::PistonWindow) -> conrod_core::Ui
-// (
-//     conrod_core::Ui,
-//     conrod_core::image::Map<piston_window::Texture<gfx_device_gl::Resources>>,
-//     piston_window::TextureContext<gfx_device_gl::Factory, gfx_device_gl::Resources, gfx_device_gl::CommandBuffer>,
-//     conrod_core::text::GlyphCache,
-//     piston_window::Texture<gfx_device_gl::Resources>,
-//     Vec<u8>
-// )
-{
-    let piston_window::Size {
-        width,
-        height
-    } = window.window.draw_size();
-
-    // construct our `Ui`.
-    let mut ui = conrod_core::UiBuilder::new([width, height])
-        // .theme(conrod_example_shared::theme())
-        .build();
-
-    // Add a `Font` to the `Ui`'s `font::Map` from file.
-
-    // ui.fonts.insert_from_file("../assets/FiraSans-regular.ttf").unwrap();
-
-    // Create texture context to perform operations on textures.
-    // let mut texture_context = (*window).create_texture_context();
-
-    // Create a texture to use for efficiently caching text on the GPU.
-    // let text_vertex_data = Vec::new();
-    // let (glyph_cache, text_texture_cache) = {
-    //     const SCALE_TOLERANCE: f32 = 0.1;
-    //     const POSITION_TOLERANCE: f32 = 0.1;
-    //     let cache = conrod_core::text::GlyphCache::builder()
-    //         .dimensions(width as u32, height as u32)
-    //         .scale_tolerance(SCALE_TOLERANCE)
-    //         .position_tolerance(POSITION_TOLERANCE)
-    //         .build();
-    //     let buffer_len = width as usize * width as usize;
-    //     let init = vec![128; buffer_len];
-    //     let settings = TextureSettings::new();
-    //     let texture =
-    //         G2dTexture::from_memory_alpha(&mut texture_context, &init, width as u32, height as u32, &settings)
-    //             .unwrap();
-    //     (cache, texture)
-    // };
-
-    // Instantiate the generated list of widget identifiers.
-    let ids = Ids::new(ui.widget_id_generator());
-
-    // Create our `conrod_core::image::Map` which describes each of our widget->image mappings.
-    // let image_map = conrod_core::image::Map::new();
-
-    // A demonstration of some state that we'd like to control with the App.
-    // let mut app = conrod_example_shared::DemoApp::new(rust_logo);
-
-    // (ui, image_map, texture_context, glyph_cache, text_texture_cache, text_vertex_data)
-    ui
 }

@@ -1,34 +1,34 @@
 #version 150 core
 precision highp float;
 
-uniform vec3 light_pos;
-uniform vec3 light_color;
-
 uniform mat4 u_proj;
 uniform mat4 u_view;
 uniform vec2 u_resolution;
 
-const vec3 sphere_center = vec3(0.);
-const vec3 plane_center = vec3(0., -1., 0.);
-const vec3 cylinder_center = vec3(1., 0., 4.);
+const   float max_dist  = 1000.;
+const   float min_dist  = 0.005;
+const   int   samples   = 1;
+const   int   max_steps = 1000;
+
+uniform vec3 light_pos;
+uniform vec3 light_color;
+uniform vec3 sphere_center;
+uniform vec3 plane_center;
+uniform vec3 cylinder_center;
 const mat3 triangle_pts = mat3(
   vec3(0.),
   vec3(0., 1., 0.),
   vec3(1., 1., 0.)
 );
 
-in vec3 ray_end;
+in vec3 ray_dir;
 
 out vec4 frag_color;
 
 #define PI 3.1415925359
 #define TWO_PI 6.2831852
-#define MAX_STEPS 200
-#define MAX_DIST 1000.
-#define MIN_DIST .0001
-#define SAMPLES 1
 
-const float dx = 1. / SAMPLES;
+const float dx = 1. / samples;
 
 //primitives are "centered" at (0, 0, 0)
 float box( vec3 p, vec3 half_sides )
@@ -40,17 +40,32 @@ float box( vec3 p, vec3 half_sides )
 float sphere(vec3 p, float r) {
   return length(p) - r;
 }
+float sphere(vec3 p, vec3 dir, float r) {
+  float t = dot(dir, p);
+  float d = t + sqrt((r + min_dist) * (r + min_dist) - dot(p, p) + t * t);
+  // if (d < 0.) return sphere(p, r);
+  // else        return d;
+  if (t < 0.) return max_dist; 
+  else return d;
+}
 
 float plane(vec3 p, vec3 norm) {
-  return abs(dot(p, norm)) - MIN_DIST;
+  return abs(dot(p, norm)) - min_dist;
 }
 
-float cylinder(vec3 p, vec3 dir, float r) {
-  return length(cross(p, dir)) - r;
+float plane(vec3 p, vec3 dir, vec3 norm) {
+  float d1 = -dot(p, norm);
+  float d2 = d1 + min_dist;
+  float d3 = dot(dir, norm);
+  if (d1 * d3 < 0.) return max_dist;
+  else              return d2 / d3;
 }
 
-float triangle( vec3 p, vec3 a, vec3 b, vec3 c )
-{
+float cylinder(vec3 p, vec3 dir_c, float r) {
+  return length(cross(p, dir_c)) - r;
+}
+
+float triangle( vec3 p, vec3 a, vec3 b, vec3 c ) {
   vec3 ba = normalize(b - a); vec3 pa = p - a;
   vec3 cb = normalize(c - b); vec3 pb = p - b;
   vec3 ac = normalize(a - c); vec3 pc = p - c;
@@ -66,7 +81,7 @@ float triangle( vec3 p, vec3 a, vec3 b, vec3 c )
 
   if (n.x) {
     if (n.z) {
-      if (n.y)  return abs(dot(t[2], ac)) - MIN_DIST;  // directly above triangle
+      if (n.y)  return abs(dot(t[2], ac)) - min_dist;  // directly above triangle
       else      return length(t[1]);        // near side cb?
     } else {
       if (n.y)  return length(t[2]);        // near side ba?
@@ -85,13 +100,14 @@ bool can_plane(vec3 dir, vec3 p, vec3 norm) {
   return dot(dir, norm) * dot(p, norm) < 0.;
 }
 
-bool can_cylinder(vec3 dir, vec3 p, vec3 c_dir, float r) {
-  return abs(dot(dir, cross(p, c_dir))) < r;
+bool can_cylinder(vec3 dir, vec3 p, vec3 dir_c, float r) {
+  return abs(dot(dir, cross(p, dir_c))) < r;
 }
 
 bool can_sphere(vec3 dir, vec3 p, float r) {
   return length(cross(p, dir)) < r;
 }
+
 bool can_triangle(vec3 dir, vec3 p, vec3 a, vec3 b, vec3 c) {
   mat3 A = mat3(
     b - a,
@@ -103,55 +119,52 @@ bool can_triangle(vec3 dir, vec3 p, vec3 a, vec3 b, vec3 c) {
     dot(c, c) - dot(b, b),
     dot(a, a) - dot(c, c)
   );
-  vec3 center = inverse(transpose(A)) * d;
+  vec3 center = 2 * inverse(transpose(A)) * d;
 
   // return can_sphere(dir, p - center, length(a - center)) && can_plane(dir, p, normalize(cross(A[0], A[2])));
-  return can_sphere(dir, p - center, 2.);
-  // return can_plane(dir, p, normalize(cross(A[0], A[2])));
+  // return can_sphere(dir, p - center, length(a - center));
+  return can_plane(dir, p, normalize(cross(A[0], A[2])));
+  // return can_cylinder(dir, p - point_ba, , max(dot(A[0], A[2]), max(dot(A[0], A[1]), dot(A[0], A[0]))) / (2. * length(A[0])));
   // return true;
 }
 
 float raw_ds(vec3 p) {
-  float d = MAX_DIST;
+  float d = max_dist;
 
   d = min(d, sphere(p - sphere_center, 1.));
   d = min(d, plane(p - plane_center, -normalize(vec3(0., 1., 0.))));
   d = min(d, cylinder(p - cylinder_center, vec3(0., 1., 0.), 1.));
 
-  d = min(d, triangle(p - vec3(2., 0., 2.), triangle_pts[0], triangle_pts[1], triangle_pts[2]));
+  // d = min(d, triangle(p - vec3(2., 0., 2.), triangle_pts[0], triangle_pts[1], triangle_pts[2]));
 
   return d;
 }
 
 float dist_scene(vec3 p, vec3 dir) {
-  float d = MAX_DIST;
+  float d = max_dist;
 
+  // d = min(d, sphere(p - sphere_center, dir, 1.));
   if (can_sphere(dir, p - sphere_center, 1.))
     d = min(d, sphere(p - sphere_center, 1.));
 
-  if (can_plane(dir, p - plane_center, vec3(0., 1., 0.)))
-    d = min(d, plane(p - plane_center, vec3(0., 1., 0.)));
+  d = min(d, plane(p - plane_center, dir, vec3(0., 1., 0.)));
+  // if (can_plane(p - plane_center, dir, vec3(0., 1., 0.)))
+  // d = min(d, plane(p - plane_center, vec3(0., 1., 0.)));
 
   if (can_cylinder(dir, p - cylinder_center, vec3(0., 1., 0.), 1.))
     d = min(d, cylinder(p - cylinder_center, vec3(0., 1., 0.), 1.));
 
-  if (can_triangle(dir, p - vec3(2., 0., 2.), triangle_pts[0], triangle_pts[1], triangle_pts[2]))
-    d = min(d, triangle(p - vec3(2., 0., 2.), triangle_pts[0], triangle_pts[1], triangle_pts[2]));
+  // if (can_triangle(dir, p - vec3(2., 0., 2.), triangle_pts[0], triangle_pts[1], triangle_pts[2]))
+  //   d = min(d, triangle(p - vec3(2., 0., 2.), triangle_pts[0], triangle_pts[1], triangle_pts[2]));
 
   return d;
 }
 
-vec3 dist_scene_gradient(vec3 p)
-{
+vec3 dist_scene_gradient(vec3 p) {
     float d = raw_ds(p);
-    vec2 e = vec2(MIN_DIST,0);
-    vec3 n = d - vec3(
-      raw_ds(p + e.xyy),
-      raw_ds(p + e.yxy),
-      raw_ds(p + e.yyx)
-    );
+    vec2 e = vec2(min_dist,0);
 
-    return -normalize(n);
+    return (vec3(raw_ds(p + e.xyy), raw_ds(p + e.yxy), raw_ds(p + e.yyx)) - d) / min_dist;
 }
 
 vec3 raymarch(vec3 origin, vec3 dir, out bool hit) {
@@ -159,45 +172,94 @@ vec3 raymarch(vec3 origin, vec3 dir, out bool hit) {
   hit = false;
 
   float d = 0.;
-  for (int i = 0; i < MAX_STEPS && d < MAX_DIST && !hit; ++i) {
+  for (int steps = 0; steps < max_steps && d < max_dist && !hit; ++steps) {
     float ds = dist_scene(p, dir);
     // float ds = raw_ds(p);
 
     d += ds;
     p += dir * ds;
 
-    hit = ds < MIN_DIST;
+    hit = ds < min_dist;
   }
 
   return p;
 }
 
-vec4 light(vec3 pos, vec3 norm, vec3 light_pos, vec3 color)
-{
-    float d_color = 0.;
+vec3 sample_light_shape(float t) {
+  return light_pos + vec3(cos(t * TWO_PI), 0., sin(t * TWO_PI));
+}
+
+// float in_shadow_simple(vec3 pos, vec3 lp) {
+//   vec3 d = lp - pos;
+//   float mag_sq = dot(d, d);
+//   vec3 light_dir = d * inversesqrt(mag_sq);
+
+//   vec3 p = pos;
+//   bool hit = false;
+//   float d = 0.;
+
+//   for (int i = 0; i < max_steps && !hit; ++i) {
+//     float ds = dist_scene(p, light_dir);
+
+//     d += ds;
+//     p += light_dir * ds;
+
+//     hit = ds < min_dist;
+//     if ( d * d >= mag_sq ) {
+//       return 1.;
+//     }
+//   }
+
+//   return 0.;
+// }
+
+vec3 in_shadow(vec3 pos, vec3 lp) {
+  vec3 d = lp - pos;
+  float mag_sq = dot(d, d);
+  vec3 light_dir = d * inversesqrt(mag_sq);
+
+  if (1. > min_dist * min_dist * mag_sq) {
+    // float sin_a = 1.;
+    vec3 p = pos;
+    bool hit = false;
+    float d = 0.;
+
+    for (int i = 0; i < max_steps && !hit; ++i) {
+      float ds = dist_scene(p, light_dir);
+      // float ds = raw_ds(p);
+
+      d += ds;
+      p += light_dir * ds;
+
+      hit = ds < min_dist;
+      if ( d * d >= mag_sq ) {
+        // return light_dir * sin_a;
+        // return light_dir * sin_a / mag_sq;
+        return light_dir / mag_sq;
+      }
+
+      // sin_a = min(sin_a, ds / d);
+    }
+  }
+
+  return vec3(0.);
+}
+
+vec4 light(vec3 pos, vec3 norm, vec3 light_pos, vec3 color) {
+    vec3 d_color = vec3(0.);
+    vec2 e = vec2(min_dist,0);
 
     float ambience = 0.02;
+    // float pos_in_shadow = in_shadow_simple(pos, light_pos);
 
     // Shadows
-    for (int i = 0; i < SAMPLES; i += 1) {
-      vec3 lp = light_pos + vec3(cos(i * dx * TWO_PI), 0., sin(i * dx * TWO_PI));
-      vec3 d = lp - pos;
-      float b = dot(d, d);
-      vec3 light_dir = d * inversesqrt(b);
-
-      if (1. > MIN_DIST * b) {
-        vec3 p = pos + norm * MIN_DIST * 1.5;
-        bool hit;
-        p = raymarch(p, light_dir, hit);
-        vec3 r = p - pos;
-
-        if ( dot(r, r) >= b ) {
-          float diffusion = dot(norm, light_dir) / b;
-          d_color += max(diffusion, 0.);
-        }
-      }
+    for (float t = 0.; t < 1.; t += dx) {
+      d_color += in_shadow(pos + 1.1 * norm * min_dist, sample_light_shape(t));
     }
-    return vec4((d_color * dx + ambience) * light_color * color, 1);
+
+    // d_color.x += (in_shadow_simple(pos, light_pos + e.xyy) - pos_in_shadow) * sample_light_shape(t)
+
+    return vec4((max(dot(d_color, norm) * dx, 0.) + ambience) * light_color * color, 1);
 }
 
 void main() {
@@ -205,15 +267,13 @@ void main() {
 
   vec3 obj_color = vec3(1.);
 
-  vec3 p;
-  vec3 normal;
   bool hit = false;
   vec3 ray_origin = vec3(1, -1, 1) * u_view[3].xyz;
-  vec3 ray_dir = normalize(ray_end);
+  vec3 ray_dir_n = normalize(ray_dir);
 
-  p = raymarch(ray_origin, ray_dir, hit);
+  vec3 p = raymarch(ray_origin, ray_dir_n, hit);
 
-  normal = dist_scene_gradient(p);
+  vec3 normal = normalize(dist_scene_gradient(p));
 
   if (hit) {
     frag_color += light(p, normal, light_pos, obj_color); // Diffuse lighting

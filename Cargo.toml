@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 quaternion = "*"
-piston_window = "*"
+piston_window = "0.114"
 vecmath = "*"
 camera_controllers = "*"
 gfx = "*"
@@ -16,7 +16,3 @@ shader_version = "*"
 conrod_core = "*"
 conrod_piston = "*"
 gfx_device_gl = "*"
-
-# [dependencies.conrod]
-# version = "*"
-# features = ["piston"]
