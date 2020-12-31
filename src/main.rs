@@ -84,23 +84,22 @@ use gfx::{
 use camera_controllers::CameraPerspective;
 
 fn main() {
-    const SENSATIVIY: f32 = -0.001;
-    const SPEED: f32 = 10.;
-    let mut view_orientation = quaternion::id::<f32>();
-    let mut scaling = 1.;
-    let mut holding_mouse_button = None;
-    let mut mv = [0.; 6];
-    let mut shape_menu = false;
-    let mut light_menu = false;
-    let mut light_follow = false;
+    const SENSATIVIY: f32 = -0.001;                     // чутливість камери при повороті
+    const SPEED: f32 = 10.;                             // швидкість руху камери 
+    let mut view_orientation = quaternion::id::<f32>(); // оріентація камери у виді кватерніона
+    let mut scaling = 1.;                               // маштаб камери
+    let mut holding_mouse_button = None;                // для того щоб поворот камери працював 
+                                                        // лише при затримці клавиші на миші
+    let mut mv = [0.; 6];                               // масив змінних що описують які з клавіш руху натиснуті зараз
+    let mut shape_menu = false;                         // змінна стану меню - чи розгорнуте меню налаштувать фігур?
+    let mut light_menu = false;                         // змінна стану меню - чи розгорнуте меню налаштувать світла?
+    let mut light_follow = false;                       // змінна стану меню - чи повинне світло слідувати позаду камери?
 
     let opengl = OpenGL::V3_2;
 
-    // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1280, 720])
-    let mut window: PistonWindow = WindowSettings::new("piston: cube", [1920, 1080])
+    let mut window: PistonWindow = WindowSettings::new("piston: cube", [1280, 720])
         .exit_on_esc(true)
         .graphics_api(opengl)
-        .fullscreen(true)
         .build()
         .unwrap();
 
@@ -156,6 +155,8 @@ fn main() {
 
     while let Some(e) = window.next() {
         let right = quaternion::rotate_vector(view_orientation, [1., 0., 0.]);
+
+        // напрямки по яких рухатись при натиску клавіш
         let mv_up    = [0., 1., 0.];
         let mv_right = [right[0], 0., right[2]];
         let mv_front = {
@@ -269,9 +270,19 @@ fn main() {
 
             let mut ui = ui.set_widgets();
 
+            // розставляємо всі елементи інтерфейсу
             {
                 const MARGIN: conrod_core::Scalar = 30.0;
-                widget::bordered_rectangle::BorderedRectangle::new([200., 800.])
+                let mut bg_height = 2. * MARGIN + 130.;
+                
+                bg_height += if light_menu {
+                    2. * (20. + 20. + 20. + 50.)
+                } else { 0. };
+                bg_height += if shape_menu {
+                    3. * (20. + 20. + 20. + 50.)
+                } else { 0. };
+
+                widget::bordered_rectangle::BorderedRectangle::new([200., bg_height])
                     .top_left_with_margin_on(ui.window, MARGIN)
                     .set(ids.background, &mut ui);
 
@@ -320,7 +331,7 @@ fn main() {
                     
                     for dy in widget::Slider::new(0., -1., 1.)
                         .w_h(10., 50.)
-                        .align_right_of(ids.slider_light_color_b)
+                        .x_relative_to(ids.background, 30.)
                         .down(20.)
                         .set(ids.slider_light_pos_dy, &mut ui)
                     {
@@ -355,7 +366,7 @@ fn main() {
 
                     for dy in widget::Slider::new(0., -1., 1.)
                         .w_h(10., 50.)
-                        .align_right_of(ids.slider_light_color_b)
+                        .x_relative_to(ids.background, 30.)
                         .down(20.)
                         .set(ids.slider_plane_pos_dy, &mut ui)
                     {
@@ -377,7 +388,7 @@ fn main() {
 
                     for dy in widget::Slider::new(0., -1., 1.)
                         .w_h(10., 50.)
-                        .align_right_of(ids.slider_light_color_b)
+                        .align_right_of(ids.slider_plane_pos_dy)
                         .down(20.)
                         .set(ids.slider_sphere_pos_dy, &mut ui)
                     {
@@ -399,7 +410,7 @@ fn main() {
 
                     for dy in widget::Slider::new(0., -1., 1.)
                         .w_h(10., 50.)
-                        .align_right_of(ids.slider_light_color_b)
+                        .align_right_of(ids.slider_plane_pos_dy)
                         .down(20.)
                         .set(ids.slider_cylinder_pos_dy, &mut ui)
                     {
@@ -505,8 +516,10 @@ fn quat_to_mat3((w, r): quaternion::Quaternion<f32>) -> vecmath::Matrix3<f32> {
     mat
 }
 
-fn resize(window: &piston_window::PistonWindow,
-    data: &mut pipe::Data<gfx_device_gl::Resources>)
+fn resize(
+    window: &piston_window::PistonWindow,
+    data: &mut pipe::Data<gfx_device_gl::Resources>
+)
 {
     let piston_window::Size {
         width,
@@ -523,8 +536,7 @@ fn resize(window: &piston_window::PistonWindow,
     data.out_color = window.output_color.clone();
 }
 
-fn setup(window: &piston_window::PistonWindow, scaling: f32) -> pipe::Data<gfx_device_gl::Resources>
-{
+fn setup(window: &piston_window::PistonWindow, scaling: f32) -> pipe::Data<gfx_device_gl::Resources> {
     let piston_window::Size {
         width,
         height
@@ -533,6 +545,8 @@ fn setup(window: &piston_window::PistonWindow, scaling: f32) -> pipe::Data<gfx_d
     let ref mut factory = window.factory.clone();
 
     let data = pipe::Data {
+
+        // малювати 2 трикутника, що покривають весь екран
         vbuf: factory.create_vertex_buffer(&[
             Vertex { pos: [ 1,  1] },
             Vertex { pos: [-1,  1] },
@@ -541,26 +555,34 @@ fn setup(window: &piston_window::PistonWindow, scaling: f32) -> pipe::Data<gfx_d
             Vertex { pos: [-1,  1] },
             Vertex { pos: [ 1, -1] }
         ]),
+
+        // матриця перспективної проекції з кутом видимости 60 градусів
         u_proj: {
             CameraPerspective {
                 fov: 60.0, near_clip: 0.1, far_clip: 10.0,
                 aspect_ratio: (width / height) as f32
             }.projection()
         },
+
+        // матриця виду з камери - містить в собі оріентацію, позицію та маштаб камери
         u_view: [
             [1., 0.,  0.,      0.],
             [0., 1.,  0.,      0.],
             [0., 0.,  1.,      0.],
             [0., 0., -6., scaling]
         ],
+
+        // розміри вікна
         u_res:           [width as f32, height as f32],
 
+        // параметри сцени
         light_pos:       [2., 0.,  1.],
-        light_color:     [0xfc as f32 / 255., 0x0f as f32 / 255., 0xc0 as f32 / 255.],
+        light_color:     [1., 1., 1.],
         sphere_center:   [-1.,  0., 0.],
         plane_center:    [ 0., -1., 0.],
         cylinder_center: [ 1.,  0., 4.],
 
+        // буфер в який записати результат - буфер вікна додатка
         out_color:      window.output_color.clone(),
     };
 
