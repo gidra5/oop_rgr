@@ -21,6 +21,11 @@ const mat3 triangle_pts = mat3(
   vec3(1., 1., 0.)
 );
 
+struct Ray {
+  vec3 pos; // Origin
+  vec3 dir; // Direction (normalized)
+};
+
 in vec3 ray_dir;
 
 out vec4 frag_color;
@@ -31,8 +36,7 @@ out vec4 frag_color;
 const float dx = 1. / samples;
 
 //primitives are "centered" at (0, 0, 0)
-float box( vec3 p, vec3 half_sides )
-{
+float box(vec3 p, vec3 half_sides) {
   vec3 q = abs(p) - half_sides;
   return length(max(q, 0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
 }
@@ -262,22 +266,72 @@ vec4 light(vec3 pos, vec3 norm, vec3 light_pos, vec3 color) {
     return vec4((max(dot(d_color, norm) * dx, 0.) + ambience) * light_color * color, 1);
 }
 
+float cameraFovAngle = PI * 2. / 3.;
+float paniniDistance = 0.75;
+float verticalCompression = 0.1;
+float halfFOV = cameraFovAngle / 2.f;
+vec2 p = vec2(sin(halfFOV), cos(halfFOV) + paniniDistance);
+float M = sqrt(dot(p, p));
+float halfPaniniFOV = atan(p.x, p.y);
+
+vec3 paniniRay(vec2 pixel) {
+  vec2 hvPan = pixel * vec2(halfPaniniFOV, halfFOV);
+  float x = sin(hvPan.x) * M;
+  float z = cos(hvPan.x) * M - paniniDistance;
+  float y = tan(hvPan.y) * (z + verticalCompression);
+
+  return vec3(x, y, z);
+}
+
+float imagePlaneDistance = 2.;
+float lensFocalLength = 5.;
+float focalLength = 1.;
+float fStop = 50.;
+
+Ray thinLensRay(vec3 ray, vec2 lensOffset) {
+  float theta = lensOffset.x * TWO_PI;
+  float radius = sqrt(lensOffset.y);
+  vec2 uv = vec2(cos(theta), sin(theta)) * radius;
+
+  float focusPlane = (imagePlaneDistance * lensFocalLength) / (imagePlaneDistance - lensFocalLength);
+  vec3 focusPoint = ray * (focusPlane / ray.z);
+  float circleOfConfusionRadius = focalLength / (2.f * fStop);
+
+  vec3 origin = vec3(uv * circleOfConfusionRadius, 0.f);
+  vec3 direction = -normalize(focusPoint + origin);
+  return Ray(origin, direction);
+}
+
+float rand(vec2 co){
+    return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
 void main() {
-  vec2 uv = gl_FragCoord.xy / u_resolution;
+  vec2 uv = (2. * gl_FragCoord.xy - u_resolution) / u_resolution.x;
 
-  vec3 obj_color = vec3(1.);
+  mat3 rot = mat3(u_view[0].xyz, u_view[1].xyz, u_view[2].xyz);
+  vec3 paniniRayDirection = paniniRay(uv);
+  // vec3 paniniRayDirection = ray_dir;
 
-  bool hit = false;
-  vec3 ray_origin = vec3(1, -1, 1) * u_view[3].xyz;
-  vec3 ray_dir_n = normalize(ray_dir);
+  for (int x = 0; x < 64; ++x) {
+    Ray ray = thinLensRay(paniniRayDirection, vec2(rand(vec2(1. / x)), rand(vec2(1. / x + 1.))));
+    ray.dir = (u_view * vec4(normalize(ray.dir), 0.)).xyz;
+    vec4 ray_pos = u_view * vec4(ray.pos, 1.);
+    ray.pos = ray_pos.xyz / ray_pos.w;
 
-  vec3 p = raymarch(ray_origin, ray_dir_n, hit);
+    vec3 obj_color = vec3(1.);
 
-  vec3 normal = normalize(dist_scene_gradient(p));
+    bool hit = false;
 
-  if (hit) {
-    frag_color += light(p, normal, light_pos, obj_color); // Diffuse lighting
-  } else {
-    frag_color = vec4(0.);
+    vec3 p = raymarch(ray.pos, ray.dir, hit);
+
+    vec3 normal = normalize(dist_scene_gradient(p));
+
+    if (hit) {
+      frag_color += light(p, normal, light_pos, obj_color); // Diffuse lighting
+    } else {
+      frag_color = vec4(0.);
+    }
   }
+  frag_color /= 64;
 }
