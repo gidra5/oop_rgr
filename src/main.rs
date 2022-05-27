@@ -260,7 +260,19 @@ fn main() {
 
             {
                 const MARGIN: conrod_core::Scalar = 30.0;
-                widget::bordered_rectangle::BorderedRectangle::new([200., 800.])
+                let mut bg_height = 2. * MARGIN + 130.;
+                bg_height += if light_menu {
+                    2. * (20. + 20. + 20. + 50.)
+                } else {
+                    0.
+                };
+                bg_height += if shape_menu {
+                    3. * (20. + 20. + 20. + 50.)
+                } else {
+                    0.
+                };
+
+                widget::bordered_rectangle::BorderedRectangle::new([200., bg_height])
                     .top_left_with_margin_on(ui.window, MARGIN)
                     .set(ids.background, &mut ui);
 
@@ -308,7 +320,7 @@ fn main() {
                         .set(ids.text_light_color, &mut ui);
                     for dy in widget::Slider::new(0., -1., 1.)
                         .w_h(10., 50.)
-                        .align_right_of(ids.slider_light_color_b)
+                        .x_relative_to(ids.background, 30.)
                         .down(20.)
                         .set(ids.slider_light_pos_dy, &mut ui)
                     {
@@ -343,7 +355,7 @@ fn main() {
 
                     for dy in widget::Slider::new(0., -1., 1.)
                         .w_h(10., 50.)
-                        .align_right_of(ids.slider_light_color_b)
+                        .x_relative_to(ids.background, 30.)
                         .down(20.)
                         .set(ids.slider_plane_pos_dy, &mut ui)
                     {
@@ -364,7 +376,7 @@ fn main() {
 
                     for dy in widget::Slider::new(0., -1., 1.)
                         .w_h(10., 50.)
-                        .align_right_of(ids.slider_light_color_b)
+                        .x_relative_to(ids.background, 30.)
                         .down(20.)
                         .set(ids.slider_sphere_pos_dy, &mut ui)
                     {
@@ -386,7 +398,7 @@ fn main() {
 
                     for dy in widget::Slider::new(0., -1., 1.)
                         .w_h(10., 50.)
-                        .align_right_of(ids.slider_light_color_b)
+                        .x_relative_to(ids.background, 30.)
                         .down(20.)
                         .set(ids.slider_cylinder_pos_dy, &mut ui)
                     {
