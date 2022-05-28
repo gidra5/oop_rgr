@@ -4,6 +4,7 @@ precision highp float;
 uniform mat4 u_proj;
 uniform mat4 u_view;
 uniform vec2 u_resolution;
+uniform float t;
 
 const   float max_dist  = 1000.;
 const   float min_dist  = 0.005;
@@ -44,9 +45,10 @@ float box(vec3 p, vec3 half_sides) {
 float sphere(vec3 p, float r) {
   return length(p) - r;
 }
-float sphere(vec3 p, vec3 dir, float r) {
-  float t = dot(dir, p);
-  float d = t + sqrt((r + min_dist) * (r + min_dist) - dot(p, p) + t * t);
+float sphere(Ray ray, float r) {
+  float t = dot(ray.dir, ray.pos);
+  float r_min = r + min_dist;
+  float d = t + sqrt(r_min * r_min - dot(ray.pos, ray.pos) + t * t);
   // if (d < 0.) return sphere(p, r);
   // else        return d;
   if (t < 0.) return max_dist; 
@@ -57,10 +59,10 @@ float plane(vec3 p, vec3 norm) {
   return abs(dot(p, norm)) - min_dist;
 }
 
-float plane(vec3 p, vec3 dir, vec3 norm) {
-  float d1 = -dot(p, norm);
+float plane(Ray ray, vec3 norm) {
+  float d1 = -dot(ray.pos, norm);
   float d2 = d1 + min_dist;
-  float d3 = dot(dir, norm);
+  float d3 = dot(ray.dir, norm);
   if (d1 * d3 < 0.) return max_dist;
   else              return d2 / d3;
 }
@@ -69,7 +71,7 @@ float cylinder(vec3 p, vec3 dir_c, float r) {
   return length(cross(p, dir_c)) - r;
 }
 
-float triangle( vec3 p, vec3 a, vec3 b, vec3 c ) {
+float triangle(vec3 p, vec3 a, vec3 b, vec3 c) {
   vec3 ba = normalize(b - a); vec3 pa = p - a;
   vec3 cb = normalize(c - b); vec3 pb = p - b;
   vec3 ac = normalize(a - c); vec3 pc = p - c;
@@ -79,40 +81,32 @@ float triangle( vec3 p, vec3 a, vec3 b, vec3 c ) {
     cross(pa, ba)
   );
 
-  vec3 d = transpose(t) * cross( ac, ba );
+  vec3 d = transpose(t) * cross(ac, ba);
 
-  bvec3 n = lessThan(d, vec3(0.));
+  ivec3 n = ivec3(lessThan(d, vec3(0.)));
+  ivec3 not_n = 1 - n;
+  int f = int(dot(n, n));
+  if (f == 3) return abs(dot(t[2], ac)) - min_dist; // directly above triangle
 
-  if (n.x) {
-    if (n.z) {
-      if (n.y)  return abs(dot(t[2], ac)) - min_dist;  // directly above triangle
-      else      return length(t[1]);        // near side cb?
-    } else {
-      if (n.y)  return length(t[2]);        // near side ba?
-      else      return length(pb);          // near b
-    }
-  } else {
-    if (n.z) {
-      if (n.y)  return length(t[0]);        // near side ac?
-      else      return length(pc);          // near c
-    } else      return length(pa);          // near a
-  }
+  mat3 vecs = mat3(pa, pb, pc);
+  int index = int(dot(f == 2 ? not_n : n, ivec3(0, 1, 2)));
+  return length(f == 2 ? t[index] : vecs[index]); 
 }
 
 //can_* show if primitive could be intersected
-bool can_plane(vec3 dir, vec3 p, vec3 norm) {
-  return dot(dir, norm) * dot(p, norm) < 0.;
+bool can_plane(Ray ray, vec3 norm) {
+  return dot(ray.dir, norm) * dot(ray.pos, norm) < 0.;
 }
 
-bool can_cylinder(vec3 dir, vec3 p, vec3 dir_c, float r) {
-  return abs(dot(dir, cross(p, dir_c))) < r;
+bool can_cylinder(Ray ray, vec3 dir_c, float r) {
+  return abs(dot(ray.dir, cross(ray.pos, dir_c))) < r;
 }
 
-bool can_sphere(vec3 dir, vec3 p, float r) {
-  return length(cross(p, dir)) < r;
+bool can_sphere(Ray ray, float r) {
+  return length(cross(ray.pos, ray.dir)) < r;
 }
 
-bool can_triangle(vec3 dir, vec3 p, vec3 a, vec3 b, vec3 c) {
+bool can_triangle(Ray ray, vec3 a, vec3 b, vec3 c) {
   mat3 A = mat3(
     b - a,
     c - b,
@@ -127,7 +121,7 @@ bool can_triangle(vec3 dir, vec3 p, vec3 a, vec3 b, vec3 c) {
 
   // return can_sphere(dir, p - center, length(a - center)) && can_plane(dir, p, normalize(cross(A[0], A[2])));
   // return can_sphere(dir, p - center, length(a - center));
-  return can_plane(dir, p, normalize(cross(A[0], A[2])));
+  return can_plane(ray, normalize(cross(A[0], A[2])));
   // return can_cylinder(dir, p - point_ba, , max(dot(A[0], A[2]), max(dot(A[0], A[1]), dot(A[0], A[0]))) / (2. * length(A[0])));
   // return true;
 }
@@ -144,18 +138,20 @@ float raw_ds(vec3 p) {
   return d;
 }
 
-float dist_scene(vec3 p, vec3 dir) {
+float dist_scene(Ray ray) {
+  vec3 p = ray.pos;
+  vec3 dir = ray.dir;
   float d = max_dist;
 
   // d = min(d, sphere(p - sphere_center, dir, 1.));
-  if (can_sphere(dir, p - sphere_center, 1.))
+  if (can_sphere(Ray(p - sphere_center, dir), 1.))
     d = min(d, sphere(p - sphere_center, 1.));
 
-  d = min(d, plane(p - plane_center, dir, vec3(0., 1., 0.)));
+  d = min(d, plane(Ray(p - plane_center, dir), vec3(0., 1., 0.)));
   // if (can_plane(p - plane_center, dir, vec3(0., 1., 0.)))
   // d = min(d, plane(p - plane_center, vec3(0., 1., 0.)));
 
-  if (can_cylinder(dir, p - cylinder_center, vec3(0., 1., 0.), 1.))
+  if (can_cylinder(Ray(p - cylinder_center, dir), vec3(0., 1., 0.), 1.))
     d = min(d, cylinder(p - cylinder_center, vec3(0., 1., 0.), 1.));
 
   // if (can_triangle(dir, p - vec3(2., 0., 2.), triangle_pts[0], triangle_pts[1], triangle_pts[2]))
@@ -171,13 +167,15 @@ vec3 dist_scene_gradient(vec3 p) {
     return (vec3(raw_ds(p + e.xyy), raw_ds(p + e.yxy), raw_ds(p + e.yyx)) - d) / min_dist;
 }
 
-vec3 raymarch(vec3 origin, vec3 dir, out bool hit) {
+vec3 raymarch(Ray ray, out bool hit) {
+  vec3 origin = ray.pos;
+  vec3 dir = ray.dir;
   vec3 p = origin;
   hit = false;
 
   float d = 0.;
   for (int steps = 0; steps < max_steps && d < max_dist && !hit; ++steps) {
-    float ds = dist_scene(p, dir);
+    float ds = dist_scene(Ray(p, dir));
     // float ds = raw_ds(p);
 
     d += ds;
@@ -229,7 +227,7 @@ vec3 in_shadow(vec3 pos, vec3 lp) {
     float d = 0.;
 
     for (int i = 0; i < max_steps && !hit; ++i) {
-      float ds = dist_scene(p, light_dir);
+      float ds = dist_scene(Ray(p, light_dir));
       // float ds = raw_ds(p);
 
       d += ds;
@@ -302,8 +300,21 @@ Ray thinLensRay(vec3 ray, vec2 lensOffset) {
   return Ray(origin, direction);
 }
 
-float rand(vec2 co){
-    return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
+// Gold Noise function
+float PHI = 1.61803398874989484820459 * .1; // Golden Ratio   
+float SRT = 1.41421356237309504880169 * 10000.0; // Square Root of Two
+
+float random_0t1(in vec2 coordinate, in float seed) {
+  return fract(sin(dot(coordinate * seed, vec2(PHI, PI * .1))) * SRT);
+}
+vec2 random_0t1_2(in vec2 coordinate, in float seed) {
+  return vec2(random_0t1(coordinate, seed), random_0t1(coordinate, seed * 0.5 + 3.));
+}
+vec3 random_0t1_3(in vec2 coordinate, in float seed) {
+  return vec3(random_0t1_2(coordinate, seed), random_0t1(coordinate, seed * 0.75 + 2.));
+}
+vec4 random_0t1_4(in vec2 coordinate, in float seed) {
+  return vec4(random_0t1_3(coordinate, seed), random_0t1(coordinate, seed * 0.85 + 1.));
 }
 
 void main() {
@@ -312,9 +323,10 @@ void main() {
   mat3 rot = mat3(u_view[0].xyz, u_view[1].xyz, u_view[2].xyz);
   vec3 paniniRayDirection = paniniRay(uv);
   // vec3 paniniRayDirection = ray_dir;
+  // frag_color = vec4(noise3(t), 0.);
 
   for (int x = 0; x < 64; ++x) {
-    Ray ray = thinLensRay(paniniRayDirection, vec2(rand(vec2(1. / x)), rand(vec2(1. / x + 1.))));
+    Ray ray = thinLensRay(paniniRayDirection, normalize(random_0t1_2(uv, t * x)));
     ray.dir = (u_view * vec4(normalize(ray.dir), 0.)).xyz;
     vec4 ray_pos = u_view * vec4(ray.pos, 1.);
     ray.pos = ray_pos.xyz / ray_pos.w;
@@ -323,7 +335,7 @@ void main() {
 
     bool hit = false;
 
-    vec3 p = raymarch(ray.pos, ray.dir, hit);
+    vec3 p = raymarch(ray, hit);
 
     vec3 normal = normalize(dist_scene_gradient(p));
 
@@ -333,5 +345,5 @@ void main() {
       frag_color = vec4(0.);
     }
   }
-  frag_color /= 64;
+  frag_color /= 64.;
 }

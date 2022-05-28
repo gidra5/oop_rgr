@@ -20,16 +20,19 @@ gfx_defines! {
     }
 
     pipeline pipe {
-        vbuf:            gfx::VertexBuffer  <  Vertex                   > = (),
-        u_proj:          gfx::Global        <  [[f32; 4]; 4]            > = "u_proj",
-        u_view:          gfx::Global        <  [[f32; 4]; 4]            > = "u_view",
-        light_pos:       gfx::Global        <  [f32; 3]                 > = "light_pos",
-        light_color:     gfx::Global        <  [f32; 3]                 > = "light_color",
-        u_res:           gfx::Global        <  [f32; 2]                 > = "u_resolution",
-        sphere_center:   gfx::Global        <  [f32; 3]                 > = "sphere_center",
-        plane_center:    gfx::Global        <  [f32; 3]                 > = "plane_center",
-        cylinder_center: gfx::Global        <  [f32; 3]                 > = "cylinder_center",
-        out_color:       gfx::RenderTarget  <::gfx::format::Srgba8      > = "frag_color",
+        vbuf:            gfx::VertexBuffer  <  Vertex                   >     = (),
+        u_proj:          gfx::Global        <  [[f32; 4]; 4]            >     = "u_proj",
+        u_view:          gfx::Global        <  [[f32; 4]; 4]            >     = "u_view",
+        light_pos:       gfx::Global        <  [f32; 3]                 >     = "light_pos",
+        light_color:     gfx::Global        <  [f32; 3]                 >     = "light_color",
+        u_res:           gfx::Global        <  [f32; 2]                 >     = "u_resolution",
+        sphere_center:   gfx::Global        <  [f32; 3]                 >     = "sphere_center",
+        plane_center:    gfx::Global        <  [f32; 3]                 >     = "plane_center",
+        cylinder_center: gfx::Global        <  [f32; 3]                 >     = "cylinder_center",
+        t:               gfx::Global        <  f32                      >     = "t",
+        out_color:       gfx::RenderTarget  <::gfx::format::Srgba8      >     = "frag_color",
+        // prev:           [gfx::TextureSampler< [f32; 4]                  >; 8] = "prev",
+        // skybox:          gfx::TextureSampler< [f32; 4]                  >     = "skybox",
     }
 }
 
@@ -239,6 +242,7 @@ fn main() {
         }
 
         e.update(|args| {
+            data.t += args.dt as f32;
             let k = 5. * args.dt as f32;
             let mut dir = vecmath::vec3_sub([mv[0], mv[1], mv[2]], [mv[3], mv[4], mv[5]]);
             dir = vecmath::col_mat3_transform([mv_front, mv_right, mv_up], dir);
@@ -563,6 +567,7 @@ fn setup(
         cylinder_center: [1., 0., 4.],
 
         out_color: window.output_color.clone(),
+        t: 0. as f32,
     };
 
     data
