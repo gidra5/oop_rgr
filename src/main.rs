@@ -5,11 +5,10 @@ extern crate vecmath;
 
 #[macro_use]
 extern crate gfx;
-extern crate quaternion;
-extern crate shader_version;
-#[macro_use]
 extern crate conrod_core;
 extern crate conrod_piston;
+extern crate quaternion;
+extern crate shader_version;
 
 extern crate gfx_device_gl;
 
@@ -38,8 +37,10 @@ gfx_defines! {
     pipeline blur_pipe {
         vbuf:            gfx::VertexBuffer  <  Vertex                   > = (),
         t:               gfx::Global        <  f32                      > = "t",
+        dt:              gfx::Global        <  f32                      > = "dt",
         out_color:       gfx::RenderTarget  <::gfx::format::Srgba8      > = "frag_color",
-        // prev:            gfx::TextureSampler< [f32; 3]                  > = "prev", // array texture of 8 prev frames
+        prev:            gfx::TextureSampler< [u32; 4]                  > = "prev", // array texture of 8 prev frames
+        current:         gfx::TextureSampler< [u32; 4]                  > = "current", // array texture of 8 prev frames
     }
 }
 
@@ -123,8 +124,15 @@ fn main() {
             pipe::new(),
         )
         .unwrap();
+    let blur_pso = factory
+        .create_pipeline_simple(
+            include_bytes!("../assets/blur.glslv"),
+            include_bytes!("../assets/blur.glslf"),
+            blur_pipe::new(),
+        )
+        .unwrap();
 
-    let mut data = setup(&mut window, scaling);
+    let (mut data, mut blur_data, mut current, mut prev) = setup(&mut window, scaling);
 
     let mut texture_context = window.create_texture_context();
     let (mut ui, mut glyph_cache, mut text_texture_cache, mut text_vertex_data) = {
@@ -239,10 +247,28 @@ fn main() {
         }
 
         window.draw_3d(&e, |window| {
+            // window
+            //     .encoder
+            //     .copy_texture_to_texture_raw(
+            //         unsafe { std::mem::transmute(&current) },
+            //         None,
+            //         current
+            //             .get_info()
+            //             .to_raw_image_info(gfx::format::ChannelType::Uint, 0),
+            //         unsafe { std::mem::transmute(&prev) },
+            //         None,
+            //         prev.get_info()
+            //             .to_raw_image_info(gfx::format::ChannelType::Uint, 0),
+            //     )
+            //     .unwrap();
             window
                 .encoder
                 .draw(&Slice::new_match_vertex_buffer(&data.vbuf), &pso, &data);
-            // window.encoder.draw(&slice2, &norm_pso, &data2);
+            window.encoder.draw(
+                &Slice::new_match_vertex_buffer(&blur_data.vbuf),
+                &blur_pso,
+                &blur_data,
+            );
             // window.encoder.draw(&Slice::new_match_vertex_buffer(&data3.vbuf), &pso, &data3);
         });
 
@@ -498,7 +524,7 @@ fn main() {
         });
 
         if let Some(_) = e.resize_args() {
-            resize(&window, &mut data);
+            (current, prev) = resize(&window, &mut data, &mut blur_data);
         }
     }
 }
@@ -534,8 +560,39 @@ fn quat_to_mat3((w, r): quaternion::Quaternion<f32>) -> vecmath::Matrix3<f32> {
     mat
 }
 
-fn resize(window: &piston_window::PistonWindow, data: &mut pipe::Data<gfx_device_gl::Resources>) {
+fn resize(
+    window: &piston_window::PistonWindow,
+    data: &mut pipe::Data<gfx_device_gl::Resources>,
+    blur_data: &mut blur_pipe::Data<gfx_device_gl::Resources>,
+) -> (
+    gfx::handle::Texture<gfx_device_gl::Resources, gfx::format::R8_G8_B8_A8>,
+    gfx::handle::Texture<gfx_device_gl::Resources, gfx::format::R8_G8_B8_A8>,
+) {
     let piston_window::Size { width, height } = window.window.draw_size();
+    let ref mut factory = window.factory.clone();
+    let prev = factory
+        .create_texture(
+            gfx::texture::Kind::D2(width as u16, height as u16, gfx::texture::AaMode::Single),
+            1,
+            gfx::memory::Bind::SHADER_RESOURCE
+                | gfx::memory::Bind::TRANSFER_DST
+                | gfx::memory::Bind::TRANSFER_SRC,
+            gfx::memory::Usage::Data,
+            Some(gfx::format::ChannelType::Uint),
+        )
+        .unwrap();
+    let current = factory
+        .create_texture(
+            gfx::texture::Kind::D2(width as u16, height as u16, gfx::texture::AaMode::Single),
+            1,
+            gfx::memory::Bind::SHADER_RESOURCE
+                | gfx::memory::Bind::TRANSFER_DST
+                | gfx::memory::Bind::TRANSFER_SRC
+                | gfx::memory::Bind::RENDER_TARGET,
+            gfx::memory::Usage::Data,
+            Some(gfx::format::ChannelType::Uint),
+        )
+        .unwrap();
 
     data.u_proj = {
         CameraPerspective {
@@ -547,15 +604,52 @@ fn resize(window: &piston_window::PistonWindow, data: &mut pipe::Data<gfx_device
         .projection()
     };
     data.u_res = [width as f32, height as f32];
+
     data.out_color = window.output_color.clone();
+    // data.out_color = factory
+    //     .view_texture_as_render_target(&current, 0, None)
+    //     .unwrap();
+
+    blur_data.out_color = window.output_color.clone();
+    // blur_data.out_color = factory
+    //     .view_texture_as_render_target(&current, 0, None)
+    //     .unwrap();
+    blur_data.prev = (
+        factory
+            .view_texture_as_shader_resource::<[u8; 4]>(&prev, (0, 0), gfx::format::Swizzle::new())
+            .unwrap(),
+        factory.create_sampler(gfx::texture::SamplerInfo::new(
+            gfx::texture::FilterMethod::Bilinear,
+            gfx::texture::WrapMode::Clamp,
+        )),
+    );
+    blur_data.current = (
+        factory
+            .view_texture_as_shader_resource::<[u8; 4]>(
+                &current,
+                (0, 0),
+                gfx::format::Swizzle::new(),
+            )
+            .unwrap(),
+        factory.create_sampler(gfx::texture::SamplerInfo::new(
+            gfx::texture::FilterMethod::Bilinear,
+            gfx::texture::WrapMode::Clamp,
+        )),
+    );
+
+    (current, prev)
 }
 
 fn setup(
     window: &mut piston_window::PistonWindow,
     scaling: f32,
-) -> pipe::Data<gfx_device_gl::Resources> {
+) -> (
+    pipe::Data<gfx_device_gl::Resources>,
+    blur_pipe::Data<gfx_device_gl::Resources>,
+    gfx::handle::Texture<gfx_device_gl::Resources, gfx::format::R8_G8_B8_A8>,
+    gfx::handle::Texture<gfx_device_gl::Resources, gfx::format::R8_G8_B8_A8>,
+) {
     let piston_window::Size { width, height } = window.window.draw_size();
-
     let ref mut factory = window.factory.clone();
     // let skybox = factory
     //     .create_texture_immutable_u8::< (gfx::format::R8_G8_B8_A8, gfx::format::Unorm)>(
@@ -572,15 +666,29 @@ fn setup(
     //         ],
     //     )
     //     .unwrap();
-    // let prev = factory
-    //     .create_texture::<gfx::format::R32_G32_B32>(
-    //         gfx::texture::Kind::D2Array(12, 8, 0, gfx::texture::AaMode::Single),
-    //         1,
-    //         gfx::memory::Bind::SHADER_RESOURCE,
-    //         gfx::memory::Usage::Data,
-    //         None,
-    //     )
-    //     .unwrap();
+    let prev = factory
+        .create_texture(
+            gfx::texture::Kind::D2(width as u16, height as u16, gfx::texture::AaMode::Single),
+            1,
+            gfx::memory::Bind::SHADER_RESOURCE
+                | gfx::memory::Bind::TRANSFER_DST
+                | gfx::memory::Bind::TRANSFER_SRC,
+            gfx::memory::Usage::Data,
+            Some(gfx::format::ChannelType::Uint),
+        )
+        .unwrap();
+    let current = factory
+        .create_texture(
+            gfx::texture::Kind::D2(width as u16, height as u16, gfx::texture::AaMode::Single),
+            1,
+            gfx::memory::Bind::SHADER_RESOURCE
+                | gfx::memory::Bind::TRANSFER_DST
+                | gfx::memory::Bind::TRANSFER_SRC
+                | gfx::memory::Bind::RENDER_TARGET,
+            gfx::memory::Usage::Data,
+            Some(gfx::format::ChannelType::Uint),
+        )
+        .unwrap();
     let data = pipe::Data {
         vbuf: factory.create_vertex_buffer(&[
             Vertex { pos: [1, 1] },
@@ -613,7 +721,10 @@ fn setup(
         plane_center: [0., -1., 0.],
         cylinder_center: [1., 0., 4.],
 
-        out_color: window.output_color.clone(),
+        // out_color: window.output_color.clone(),
+        out_color: factory
+            .view_texture_as_render_target(&current, 0, None)
+            .unwrap(),
         // skybox: (
         //     skybox.1,
         //     factory.create_sampler(gfx::texture::SamplerInfo::new(
@@ -635,21 +746,38 @@ fn setup(
         ]),
 
         out_color: window.output_color.clone(),
-        // prev: (
-        //     factory
-        //         .view_texture_as_shader_resource::<[f32; 3]>(
-        //             &prev,
-        //             (0, 1),
-        //             gfx::format::Swizzle::new(),
-        //         )
-        //         .unwrap(),
-        //     factory.create_sampler(gfx::texture::SamplerInfo::new(
-        //         gfx::texture::FilterMethod::Bilinear,
-        //         gfx::texture::WrapMode::Clamp,
-        //     )),
-        // ),
+        // out_color: factory
+        //     .view_texture_as_render_target(&current, 0, None)
+        //     .unwrap(),
+        prev: (
+            factory
+                .view_texture_as_shader_resource::<[u8; 4]>(
+                    &prev,
+                    (0, 0),
+                    gfx::format::Swizzle::new(),
+                )
+                .unwrap(),
+            factory.create_sampler(gfx::texture::SamplerInfo::new(
+                gfx::texture::FilterMethod::Bilinear,
+                gfx::texture::WrapMode::Clamp,
+            )),
+        ),
+        current: (
+            factory
+                .view_texture_as_shader_resource::<[u8; 4]>(
+                    &current,
+                    (0, 0),
+                    gfx::format::Swizzle::new(),
+                )
+                .unwrap(),
+            factory.create_sampler(gfx::texture::SamplerInfo::new(
+                gfx::texture::FilterMethod::Bilinear,
+                gfx::texture::WrapMode::Clamp,
+            )),
+        ),
         t: 0. as f32,
+        dt: 0. as f32,
     };
 
-    data
+    (data, blur_data, current, prev)
 }

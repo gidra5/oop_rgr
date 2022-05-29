@@ -11,6 +11,8 @@ uniform mat4 u_proj;
 uniform mat4 u_view;
 uniform vec2 u_resolution;
 uniform samplerCube skybox;
+uniform sampler2D prev;
+uniform float dt;
 uniform float t;
 uniform uint samples;
 
@@ -42,7 +44,6 @@ float random_0t1(in vec2 coordinate, in float seed) {
   int base = 2<<8;
   int modulo = 2<<16;
   return fract(sin(dot(coordinate * (fract(seed / modulo) * modulo + base), vec2(PHI * .1, PI * .1))) * SRT * 10000.0);
-  // return fract(sin(dot(coordinate * seed, vec2(PHI * .1, PI * .1))) * SRT * 10000.0);
 }
 vec2 random_0t1_2(in vec2 coordinate, in float seed) {
   return vec2(random_0t1(coordinate, seed), random_0t1(coordinate, seed * 0.5 + 3.));
@@ -335,6 +336,8 @@ Ray thinLensRay(vec3 ray, vec2 lensOffset) {
 }
 
 void main() {
+    // vec2 uv = (gl_FragCoord.xy) / u_resolution.x;
+
   for (int x = 0; x < int(samples); ++x) {
     vec2 subpixel = random_0t1_2(gl_FragCoord.xy, t * x + 0.5);
     vec2 uv = (2. * (gl_FragCoord.xy + subpixel) - u_resolution) / u_resolution.x;
@@ -373,4 +376,7 @@ void main() {
     frag_color += vec4(subpixel_color, 1);
   }
   frag_color /= samples;
+  
+  // frag_color = vec4(gl_FragCoord.xy / vec2(1280, 720), 0., 1.);
+  // frag_color = vec4(uv, 0., 1.);
 }
