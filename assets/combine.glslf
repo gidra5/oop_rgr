@@ -1,14 +1,21 @@
 #version 150 core
+
+#define PHI 1.61803398874989484820459 // Golden Ratio   
+#define SRT 1.41421356237309504880169 // Square Root of Two
+#define PI 3.14159265358979323846264
+#define TWO_PI 6.28318530717958647692528
+
 precision highp float;
 
 uniform mat4 u_proj;
 uniform mat4 u_view;
 uniform vec2 u_resolution;
+// uniform samplerCube skybox;
 uniform float t;
+uniform uint samples;
 
 const   float max_dist  = 1000.;
-const   float min_dist  = 0.005;
-const   int   samples   = 1;
+const   float min_dist  = 0.0005;
 const   int   max_steps = 1000;
 
 uniform vec3 light_pos;
@@ -31,10 +38,21 @@ in vec3 ray_dir;
 
 out vec4 frag_color;
 
-#define PI 3.1415925359
-#define TWO_PI 6.2831852
-
-const float dx = 1. / samples;
+float random_0t1(in vec2 coordinate, in float seed) {
+  int base = 2<<4;
+  int modulo = 2<<16;
+  // return fract(sin(dot(coordinate * (fract(seed / modulo) * modulo + base), vec2(PHI * .1, PI * .1))) * SRT * 10000.0);
+  return fract(sin(dot(coordinate * seed, vec2(PHI * .1, PI * .1))) * SRT * 10000.0);
+}
+vec2 random_0t1_2(in vec2 coordinate, in float seed) {
+  return vec2(random_0t1(coordinate, seed), random_0t1(coordinate, seed * 0.5 + 3.));
+}
+vec3 random_0t1_3(in vec2 coordinate, in float seed) {
+  return vec3(random_0t1_2(coordinate, seed), random_0t1(coordinate, seed * 0.75 + 2.));
+}
+vec4 random_0t1_4(in vec2 coordinate, in float seed) {
+  return vec4(random_0t1_3(coordinate, seed), random_0t1(coordinate, seed * 0.85 + 1.));
+}
 
 //primitives are "centered" at (0, 0, 0)
 float box(vec3 p, vec3 half_sides) {
@@ -133,7 +151,7 @@ float raw_ds(vec3 p) {
   d = min(d, plane(p - plane_center, -normalize(vec3(0., 1., 0.))));
   d = min(d, cylinder(p - cylinder_center, vec3(0., 1., 0.), 1.));
 
-  // d = min(d, triangle(p - vec3(2., 0., 2.), triangle_pts[0], triangle_pts[1], triangle_pts[2]));
+  d = min(d, triangle(p - vec3(2., 2., 2.), triangle_pts[0], triangle_pts[1], triangle_pts[2]));
 
   return d;
 }
@@ -215,11 +233,7 @@ vec3 sample_light_shape(float t) {
 //   return 0.;
 // }
 
-vec3 in_shadow(vec3 pos, vec3 lp) {
-  vec3 d = lp - pos;
-  float mag_sq = dot(d, d);
-  vec3 light_dir = d * inversesqrt(mag_sq);
-
+vec3 in_shadow(vec3 pos, vec3 light_dir, float mag_sq) {
   if (1. > min_dist * min_dist * mag_sq) {
     // float sin_a = 1.;
     vec3 p = pos;
@@ -237,7 +251,7 @@ vec3 in_shadow(vec3 pos, vec3 lp) {
       if ( d * d >= mag_sq ) {
         // return light_dir * sin_a;
         // return light_dir * sin_a / mag_sq;
-        return light_dir / mag_sq;
+        return light_dir;
       }
 
       // sin_a = min(sin_a, ds / d);
@@ -247,21 +261,42 @@ vec3 in_shadow(vec3 pos, vec3 lp) {
   return vec3(0.);
 }
 
+vec3 sun_color = vec3(0x92, 0x97, 0xC4) / 0xff * 0.9;
 vec4 light(vec3 pos, vec3 norm, vec3 light_pos, vec3 color) {
     vec3 d_color = vec3(0.);
-    vec2 e = vec2(min_dist,0);
+    vec2 e = vec2(min_dist, 0);
 
     float ambience = 0.02;
     // float pos_in_shadow = in_shadow_simple(pos, light_pos);
 
     // Shadows
-    for (float t = 0.; t < 1.; t += dx) {
-      d_color += in_shadow(pos + 1.1 * norm * min_dist, sample_light_shape(t));
+    for (int x = 0; x < int(samples); ++x) {
+      vec3 p = pos + 1.1 * norm * min_dist;
+      vec3 d = sample_light_shape(random_0t1(p.xy, 0.1 * t * x)) - p;
+      float mag_sq = dot(d, d);
+      d_color += in_shadow(p, normalize(d), mag_sq) / mag_sq;
     }
 
     // d_color.x += (in_shadow_simple(pos, light_pos + e.xyy) - pos_in_shadow) * sample_light_shape(t)
 
-    return vec4((max(dot(d_color, norm) * dx, 0.) + ambience) * light_color * color, 1);
+    return vec4((max(dot(d_color, norm) / samples, 0.) * light_color + ambience * sun_color) * color, 1);
+}
+vec4 sun(vec3 pos, vec3 norm, vec3 color) {
+    vec3 d_color = vec3(0.);
+    vec2 e = vec2(min_dist, 0);
+
+    float ambience = 0.02;
+    vec3 ambiance_color = sun_color;
+    // float pos_in_shadow = in_shadow_simple(pos, light_pos);
+
+    // Shadows
+    vec3 p = pos + 1.1 * norm * min_dist;
+    vec3 d = vec3(1.);
+    d_color += in_shadow(p, normalize(d), 0.99 / (min_dist * min_dist));
+
+    // d_color.x += (in_shadow_simple(pos, light_pos + e.xyy) - pos_in_shadow) * sample_light_shape(t)
+
+    return vec4((max(dot(d_color, norm) / samples, 0.) + ambience) * sun_color * color, 1);
 }
 
 float cameraFovAngle = PI * 2. / 3.;
@@ -272,6 +307,10 @@ vec2 p = vec2(sin(halfFOV), cos(halfFOV) + paniniDistance);
 float M = sqrt(dot(p, p));
 float halfPaniniFOV = atan(p.x, p.y);
 
+vec3 pinholeRay(vec2 pixel) { 
+  return vec3(pixel, 1/tan(halfFOV));
+}
+
 vec3 paniniRay(vec2 pixel) {
   vec2 hvPan = pixel * vec2(halfPaniniFOV, halfFOV);
   float x = sin(hvPan.x) * M;
@@ -281,10 +320,9 @@ vec3 paniniRay(vec2 pixel) {
   return vec3(x, y, z);
 }
 
-float imagePlaneDistance = 2.;
+float imagePlaneDistance = 4.;
 float lensFocalLength = 5.;
-float focalLength = 1.;
-float fStop = 50.;
+float circleOfConfusionRadius = 0.1;
 
 Ray thinLensRay(vec3 ray, vec2 lensOffset) {
   float theta = lensOffset.x * TWO_PI;
@@ -293,57 +331,45 @@ Ray thinLensRay(vec3 ray, vec2 lensOffset) {
 
   float focusPlane = (imagePlaneDistance * lensFocalLength) / (imagePlaneDistance - lensFocalLength);
   vec3 focusPoint = ray * (focusPlane / ray.z);
-  float circleOfConfusionRadius = focalLength / (2.f * fStop);
 
   vec3 origin = vec3(uv * circleOfConfusionRadius, 0.f);
   vec3 direction = -normalize(focusPoint + origin);
   return Ray(origin, direction);
 }
 
-// Gold Noise function
-float PHI = 1.61803398874989484820459 * .1; // Golden Ratio   
-float SRT = 1.41421356237309504880169 * 10000.0; // Square Root of Two
-
-float random_0t1(in vec2 coordinate, in float seed) {
-  return fract(sin(dot(coordinate * seed, vec2(PHI, PI * .1))) * SRT);
-}
-vec2 random_0t1_2(in vec2 coordinate, in float seed) {
-  return vec2(random_0t1(coordinate, seed), random_0t1(coordinate, seed * 0.5 + 3.));
-}
-vec3 random_0t1_3(in vec2 coordinate, in float seed) {
-  return vec3(random_0t1_2(coordinate, seed), random_0t1(coordinate, seed * 0.75 + 2.));
-}
-vec4 random_0t1_4(in vec2 coordinate, in float seed) {
-  return vec4(random_0t1_3(coordinate, seed), random_0t1(coordinate, seed * 0.85 + 1.));
-}
-
 void main() {
-  vec2 uv = (2. * gl_FragCoord.xy - u_resolution) / u_resolution.x;
+  for (int x = 0; x < int(samples); ++x) {
+    vec2 subpixel = random_0t1_2(gl_FragCoord.xy, t * x + 0.5);
+    vec2 uv = (2. * (gl_FragCoord.xy + subpixel) - u_resolution) / u_resolution.x;
+    // vec3 rayDirection = paniniRay(uv);
+    vec3 rayDirection = normalize(pinholeRay(uv));
+    vec4 subpixel_color = vec4(0.);
 
-  mat3 rot = mat3(u_view[0].xyz, u_view[1].xyz, u_view[2].xyz);
-  vec3 paniniRayDirection = paniniRay(uv);
-  // vec3 paniniRayDirection = ray_dir;
-  // frag_color = vec4(noise3(t), 0.);
+    for (int x = 0; x < int(samples); ++x) {
+      Ray ray = thinLensRay(rayDirection, normalize(random_0t1_2(uv, t * x)));
+      ray.dir = (u_view * vec4(normalize(ray.dir), 0.)).xyz;
+      vec4 ray_pos = u_view * vec4(ray.pos, 1.);
+      ray.pos = ray_pos.xyz / ray_pos.w;
 
-  for (int x = 0; x < 64; ++x) {
-    Ray ray = thinLensRay(paniniRayDirection, normalize(random_0t1_2(uv, t * x)));
-    ray.dir = (u_view * vec4(normalize(ray.dir), 0.)).xyz;
-    vec4 ray_pos = u_view * vec4(ray.pos, 1.);
-    ray.pos = ray_pos.xyz / ray_pos.w;
+      vec3 obj_color = vec3(1.);
 
-    vec3 obj_color = vec3(1.);
+      bool hit = false;
 
-    bool hit = false;
+      vec3 p = raymarch(ray, hit);
 
-    vec3 p = raymarch(ray, hit);
+      vec3 normal = normalize(dist_scene_gradient(p));
 
-    vec3 normal = normalize(dist_scene_gradient(p));
-
-    if (hit) {
-      frag_color += light(p, normal, light_pos, obj_color); // Diffuse lighting
-    } else {
-      frag_color = vec4(0.);
+      if (hit) {
+        vec4 color = 
+          light(p, normal, light_pos, obj_color) + // Diffuse lighting
+          sun(p, normal, obj_color); // sun light
+        subpixel_color += color / samples; 
+      } else {
+        subpixel_color = texture(skybox, ray.dir);
+        // subpixel_color = vec4(0.);
+      }
     }
+    frag_color += subpixel_color;
   }
-  frag_color /= 64.;
+  frag_color /= samples;
 }

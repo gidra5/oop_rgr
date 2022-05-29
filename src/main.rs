@@ -1,4 +1,5 @@
 extern crate camera_controllers;
+extern crate image;
 extern crate piston_window;
 extern crate vecmath;
 
@@ -13,6 +14,7 @@ extern crate conrod_piston;
 extern crate gfx_device_gl;
 
 use self::piston_window::texture::UpdateTexture;
+use std::path::Path;
 
 gfx_defines! {
     vertex Vertex {
@@ -20,19 +22,25 @@ gfx_defines! {
     }
 
     pipeline pipe {
-        vbuf:            gfx::VertexBuffer  <  Vertex                   >     = (),
-        u_proj:          gfx::Global        <  [[f32; 4]; 4]            >     = "u_proj",
-        u_view:          gfx::Global        <  [[f32; 4]; 4]            >     = "u_view",
-        light_pos:       gfx::Global        <  [f32; 3]                 >     = "light_pos",
-        light_color:     gfx::Global        <  [f32; 3]                 >     = "light_color",
-        u_res:           gfx::Global        <  [f32; 2]                 >     = "u_resolution",
-        sphere_center:   gfx::Global        <  [f32; 3]                 >     = "sphere_center",
-        plane_center:    gfx::Global        <  [f32; 3]                 >     = "plane_center",
-        cylinder_center: gfx::Global        <  [f32; 3]                 >     = "cylinder_center",
-        t:               gfx::Global        <  f32                      >     = "t",
-        out_color:       gfx::RenderTarget  <::gfx::format::Srgba8      >     = "frag_color",
-        // prev:           [gfx::TextureSampler< [f32; 4]                  >; 8] = "prev",
-        // skybox:          gfx::TextureSampler< [f32; 4]                  >     = "skybox",
+        vbuf:            gfx::VertexBuffer  <  Vertex                   > = (),
+        u_proj:          gfx::Global        <  [[f32; 4]; 4]            > = "u_proj",
+        u_view:          gfx::Global        <  [[f32; 4]; 4]            > = "u_view",
+        light_pos:       gfx::Global        <  [f32; 3]                 > = "light_pos",
+        light_color:     gfx::Global        <  [f32; 3]                 > = "light_color",
+        u_res:           gfx::Global        <  [f32; 2]                 > = "u_resolution",
+        sphere_center:   gfx::Global        <  [f32; 3]                 > = "sphere_center",
+        plane_center:    gfx::Global        <  [f32; 3]                 > = "plane_center",
+        cylinder_center: gfx::Global        <  [f32; 3]                 > = "cylinder_center",
+        t:               gfx::Global        <  f32                      > = "t",
+        samples:         gfx::Global        <  u32                      > = "samples",
+        out_color:       gfx::RenderTarget  <::gfx::format::Srgba8      > = "frag_color",
+        skybox:          gfx::TextureSampler<  [f32; 4]                 > = "skybox",
+    }
+    pipeline blur_pipe {
+        vbuf:            gfx::VertexBuffer  <  Vertex                   > = (),
+        t:               gfx::Global        <  f32                      > = "t",
+        out_color:       gfx::RenderTarget  <::gfx::format::Srgba8      > = "frag_color",
+        // prev:            gfx::TextureSampler< [f32; 3]                  > = "prev", // array texture of 8 prev frames
     }
 }
 
@@ -47,6 +55,8 @@ widget_ids! {
         slider_light_pos_dy,
 
         text_light_color,
+        text_samples,
+        slider_samples,
         xypad_light_color_hue_brightness,
         slider_light_color_r,
         slider_light_color_g,
@@ -96,12 +106,12 @@ fn main() {
 
     let opengl = OpenGL::V3_2;
 
-    // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1280, 720])
-    // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1920, 1080])
-    let mut window: PistonWindow = WindowSettings::new("piston: cube", [2560, 1440])
+    let mut window: PistonWindow = WindowSettings::new("piston: cube", [1280, 720])
+        // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1920, 1080])
+        // let mut window: PistonWindow = WindowSettings::new("piston: cube", [2560, 1440])
         .exit_on_esc(true)
         .graphics_api(opengl)
-        .fullscreen(true)
+        // .fullscreen(true)
         .build()
         .unwrap();
 
@@ -115,7 +125,7 @@ fn main() {
         )
         .unwrap();
 
-    let mut data = setup(&window, scaling);
+    let mut data = setup(&mut window, scaling);
 
     let mut texture_context = window.create_texture_context();
     let (mut ui, mut glyph_cache, mut text_texture_cache, mut text_vertex_data) = {
@@ -233,6 +243,8 @@ fn main() {
             window
                 .encoder
                 .draw(&Slice::new_match_vertex_buffer(&data.vbuf), &pso, &data);
+            // window.encoder.draw(&slice2, &norm_pso, &data2);
+            // window.encoder.draw(&Slice::new_match_vertex_buffer(&data3.vbuf), &pso, &data3);
         });
 
         // Convert the src event to a conrod event.
@@ -264,7 +276,7 @@ fn main() {
 
             {
                 const MARGIN: conrod_core::Scalar = 30.0;
-                let mut bg_height = 2. * MARGIN + 130.;
+                let mut bg_height = 2. * MARGIN + 200.;
                 bg_height += if light_menu {
                     2. * (20. + 20. + 20. + 50.)
                 } else {
@@ -279,6 +291,19 @@ fn main() {
                 widget::bordered_rectangle::BorderedRectangle::new([200., bg_height])
                     .top_left_with_margin_on(ui.window, MARGIN)
                     .set(ids.background, &mut ui);
+
+                widget::Text::new("Samples")
+                    .mid_top_with_margin_on(ids.background, MARGIN)
+                    .down(20.)
+                    .set(ids.text_samples, &mut ui);
+                for samples in widget::NumberDialer::new(data.samples as f32, 1., 256., 1)
+                    .w_h(50., 10.)
+                    .x_relative_to(ids.background, 30.)
+                    .down(20.)
+                    .set(ids.slider_samples, &mut ui)
+                {
+                    data.samples = samples as u32;
+                }
 
                 for toggled in widget::Toggle::new(light_menu)
                     .color(Color::Rgba(0.5, 0.5, 0.5, 0.5))
@@ -527,13 +552,36 @@ fn resize(window: &piston_window::PistonWindow, data: &mut pipe::Data<gfx_device
 }
 
 fn setup(
-    window: &piston_window::PistonWindow,
+    window: &mut piston_window::PistonWindow,
     scaling: f32,
 ) -> pipe::Data<gfx_device_gl::Resources> {
     let piston_window::Size { width, height } = window.window.draw_size();
 
     let ref mut factory = window.factory.clone();
-
+    let skybox = factory
+        .create_texture_immutable_u8::< (gfx::format::R8_G8_B8_A8, gfx::format::Unorm)>(
+            // gfx::texture::Kind::D2(2048, 2048, gfx::texture::AaMode::Single),
+            gfx::texture::Kind::Cube(2048),
+            gfx::texture::Mipmap::Provided,
+            &[
+                &image::load(std::io::Cursor::new(include_bytes!("../assets/right.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
+                &image::load(std::io::Cursor::new(include_bytes!("../assets/left.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
+                &image::load(std::io::Cursor::new(include_bytes!("../assets/top.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
+                &image::load(std::io::Cursor::new(include_bytes!("../assets/bottom.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
+                &image::load(std::io::Cursor::new(include_bytes!("../assets/back.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
+                &image::load(std::io::Cursor::new(include_bytes!("../assets/front.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
+            ],
+        )
+        .unwrap();
+    // let prev = factory
+    //     .create_texture::<gfx::format::R32_G32_B32>(
+    //         gfx::texture::Kind::D2Array(12, 8, 0, gfx::texture::AaMode::Single),
+    //         1,
+    //         gfx::memory::Bind::SHADER_RESOURCE,
+    //         gfx::memory::Usage::Data,
+    //         None,
+    //     )
+    //     .unwrap();
     let data = pipe::Data {
         vbuf: factory.create_vertex_buffer(&[
             Vertex { pos: [1, 1] },
@@ -567,6 +615,40 @@ fn setup(
         cylinder_center: [1., 0., 4.],
 
         out_color: window.output_color.clone(),
+        skybox: (
+            skybox.1,
+            factory.create_sampler(gfx::texture::SamplerInfo::new(
+                gfx::texture::FilterMethod::Bilinear,
+                gfx::texture::WrapMode::Clamp,
+            )),
+        ),
+        t: 0. as f32,
+        samples: 4,
+    };
+    let blur_data = blur_pipe::Data {
+        vbuf: factory.create_vertex_buffer(&[
+            Vertex { pos: [1, 1] },
+            Vertex { pos: [-1, 1] },
+            Vertex { pos: [1, -1] },
+            Vertex { pos: [-1, -1] },
+            Vertex { pos: [-1, 1] },
+            Vertex { pos: [1, -1] },
+        ]),
+
+        out_color: window.output_color.clone(),
+        // prev: (
+        //     factory
+        //         .view_texture_as_shader_resource::<[f32; 3]>(
+        //             &prev,
+        //             (0, 1),
+        //             gfx::format::Swizzle::new(),
+        //         )
+        //         .unwrap(),
+        //     factory.create_sampler(gfx::texture::SamplerInfo::new(
+        //         gfx::texture::FilterMethod::Bilinear,
+        //         gfx::texture::WrapMode::Clamp,
+        //     )),
+        // ),
         t: 0. as f32,
     };
 
