@@ -10,7 +10,7 @@ precision highp float;
 uniform mat4 u_proj;
 uniform mat4 u_view;
 uniform vec2 u_resolution;
-// uniform samplerCube skybox;
+uniform samplerCube skybox;
 uniform float t;
 uniform uint samples;
 
@@ -39,10 +39,10 @@ in vec3 ray_dir;
 out vec4 frag_color;
 
 float random_0t1(in vec2 coordinate, in float seed) {
-  int base = 2<<4;
+  int base = 2<<8;
   int modulo = 2<<16;
-  // return fract(sin(dot(coordinate * (fract(seed / modulo) * modulo + base), vec2(PHI * .1, PI * .1))) * SRT * 10000.0);
-  return fract(sin(dot(coordinate * seed, vec2(PHI * .1, PI * .1))) * SRT * 10000.0);
+  return fract(sin(dot(coordinate * (fract(seed / modulo) * modulo + base), vec2(PHI * .1, PI * .1))) * SRT * 10000.0);
+  // return fract(sin(dot(coordinate * seed, vec2(PHI * .1, PI * .1))) * SRT * 10000.0);
 }
 vec2 random_0t1_2(in vec2 coordinate, in float seed) {
   return vec2(random_0t1(coordinate, seed), random_0t1(coordinate, seed * 0.5 + 3.));
@@ -262,26 +262,23 @@ vec3 in_shadow(vec3 pos, vec3 light_dir, float mag_sq) {
 }
 
 vec3 sun_color = vec3(0x92, 0x97, 0xC4) / 0xff * 0.9;
-vec4 light(vec3 pos, vec3 norm, vec3 light_pos, vec3 color) {
+vec3 light(vec3 pos, vec3 norm, vec3 light_pos) {
     vec3 d_color = vec3(0.);
     vec2 e = vec2(min_dist, 0);
 
     float ambience = 0.02;
     // float pos_in_shadow = in_shadow_simple(pos, light_pos);
 
-    // Shadows
-    for (int x = 0; x < int(samples); ++x) {
-      vec3 p = pos + 1.1 * norm * min_dist;
-      vec3 d = sample_light_shape(random_0t1(p.xy, 0.1 * t * x)) - p;
-      float mag_sq = dot(d, d);
-      d_color += in_shadow(p, normalize(d), mag_sq) / mag_sq;
-    }
+    vec3 p = pos + 1.1 * norm * min_dist;
+    vec3 d = light_pos - p;
+    float mag_sq = dot(d, d);
+    d_color += in_shadow(p, normalize(d), mag_sq) / mag_sq;
 
     // d_color.x += (in_shadow_simple(pos, light_pos + e.xyy) - pos_in_shadow) * sample_light_shape(t)
 
-    return vec4((max(dot(d_color, norm) / samples, 0.) * light_color + ambience * sun_color) * color, 1);
+    return max(dot(d_color, norm) / samples, 0.) * light_color + ambience * sun_color;
 }
-vec4 sun(vec3 pos, vec3 norm, vec3 color) {
+vec3 sun(vec3 pos, vec3 norm) {
     vec3 d_color = vec3(0.);
     vec2 e = vec2(min_dist, 0);
 
@@ -296,7 +293,7 @@ vec4 sun(vec3 pos, vec3 norm, vec3 color) {
 
     // d_color.x += (in_shadow_simple(pos, light_pos + e.xyy) - pos_in_shadow) * sample_light_shape(t)
 
-    return vec4((max(dot(d_color, norm) / samples, 0.) + ambience) * sun_color * color, 1);
+    return (max(dot(d_color, norm) / samples, 0.) + ambience) * sun_color;
 }
 
 float cameraFovAngle = PI * 2. / 3.;
@@ -320,9 +317,9 @@ vec3 paniniRay(vec2 pixel) {
   return vec3(x, y, z);
 }
 
-float imagePlaneDistance = 4.;
-float lensFocalLength = 5.;
-float circleOfConfusionRadius = 0.1;
+float imagePlaneDistance = 1.;
+float lensFocalLength = 2.1;
+float circleOfConfusionRadius = 0.04;
 
 Ray thinLensRay(vec3 ray, vec2 lensOffset) {
   float theta = lensOffset.x * TWO_PI;
@@ -341,11 +338,11 @@ void main() {
   for (int x = 0; x < int(samples); ++x) {
     vec2 subpixel = random_0t1_2(gl_FragCoord.xy, t * x + 0.5);
     vec2 uv = (2. * (gl_FragCoord.xy + subpixel) - u_resolution) / u_resolution.x;
-    // vec3 rayDirection = paniniRay(uv);
+    // vec3 rayDirection = normalize(paniniRay(uv));
     vec3 rayDirection = normalize(pinholeRay(uv));
-    vec4 subpixel_color = vec4(0.);
+    vec3 subpixel_color = vec3(0.);
 
-    for (int x = 0; x < int(samples); ++x) {
+    for (int x = 0; x < int(samples) * 4; ++x) {
       Ray ray = thinLensRay(rayDirection, normalize(random_0t1_2(uv, t * x)));
       ray.dir = (u_view * vec4(normalize(ray.dir), 0.)).xyz;
       vec4 ray_pos = u_view * vec4(ray.pos, 1.);
@@ -360,16 +357,20 @@ void main() {
       vec3 normal = normalize(dist_scene_gradient(p));
 
       if (hit) {
-        vec4 color = 
-          light(p, normal, light_pos, obj_color) + // Diffuse lighting
-          sun(p, normal, obj_color); // sun light
-        subpixel_color += color / samples; 
+        vec3 color = sun(p, normal) * obj_color;
+
+        for (int x = 0; x < int(samples); ++x) {
+          vec3 light_pos = sample_light_shape(random_0t1(uv, t * x));
+          color += light(p, normal, light_pos) * obj_color / samples; // Diffuse lighting
+        }
+
+        subpixel_color += color / (int(samples) * 4); 
       } else {
-        subpixel_color = texture(skybox, ray.dir);
-        // subpixel_color = vec4(0.);
+        // subpixel_color = texture(skybox, ray.dir);
+        subpixel_color = vec3(0.);
       }
     }
-    frag_color += subpixel_color;
+    frag_color += vec4(subpixel_color, 1);
   }
   frag_color /= samples;
 }

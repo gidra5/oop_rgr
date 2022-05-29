@@ -14,7 +14,6 @@ extern crate conrod_piston;
 extern crate gfx_device_gl;
 
 use self::piston_window::texture::UpdateTexture;
-use std::path::Path;
 
 gfx_defines! {
     vertex Vertex {
@@ -34,7 +33,7 @@ gfx_defines! {
         t:               gfx::Global        <  f32                      > = "t",
         samples:         gfx::Global        <  u32                      > = "samples",
         out_color:       gfx::RenderTarget  <::gfx::format::Srgba8      > = "frag_color",
-        skybox:          gfx::TextureSampler<  [f32; 4]                 > = "skybox",
+        // skybox:          gfx::TextureSampler<  [f32; 4]                 > = "skybox",
     }
     pipeline blur_pipe {
         vbuf:            gfx::VertexBuffer  <  Vertex                   > = (),
@@ -558,21 +557,21 @@ fn setup(
     let piston_window::Size { width, height } = window.window.draw_size();
 
     let ref mut factory = window.factory.clone();
-    let skybox = factory
-        .create_texture_immutable_u8::< (gfx::format::R8_G8_B8_A8, gfx::format::Unorm)>(
-            // gfx::texture::Kind::D2(2048, 2048, gfx::texture::AaMode::Single),
-            gfx::texture::Kind::Cube(2048),
-            gfx::texture::Mipmap::Provided,
-            &[
-                &image::load(std::io::Cursor::new(include_bytes!("../assets/right.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
-                &image::load(std::io::Cursor::new(include_bytes!("../assets/left.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
-                &image::load(std::io::Cursor::new(include_bytes!("../assets/top.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
-                &image::load(std::io::Cursor::new(include_bytes!("../assets/bottom.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
-                &image::load(std::io::Cursor::new(include_bytes!("../assets/back.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
-                &image::load(std::io::Cursor::new(include_bytes!("../assets/front.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
-            ],
-        )
-        .unwrap();
+    // let skybox = factory
+    //     .create_texture_immutable_u8::< (gfx::format::R8_G8_B8_A8, gfx::format::Unorm)>(
+    //         // gfx::texture::Kind::D2(2048, 2048, gfx::texture::AaMode::Single),
+    //         gfx::texture::Kind::Cube(2048),
+    //         gfx::texture::Mipmap::Provided,
+    //         &[
+    //             &image::load(std::io::Cursor::new(include_bytes!("../assets/right.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
+    //             &image::load(std::io::Cursor::new(include_bytes!("../assets/left.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
+    //             &image::load(std::io::Cursor::new(include_bytes!("../assets/top.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
+    //             &image::load(std::io::Cursor::new(include_bytes!("../assets/bottom.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
+    //             &image::load(std::io::Cursor::new(include_bytes!("../assets/back.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
+    //             &image::load(std::io::Cursor::new(include_bytes!("../assets/front.jpg")), image::ImageFormat::Jpeg).unwrap().to_rgba8(),
+    //         ],
+    //     )
+    //     .unwrap();
     // let prev = factory
     //     .create_texture::<gfx::format::R32_G32_B32>(
     //         gfx::texture::Kind::D2Array(12, 8, 0, gfx::texture::AaMode::Single),
@@ -615,13 +614,13 @@ fn setup(
         cylinder_center: [1., 0., 4.],
 
         out_color: window.output_color.clone(),
-        skybox: (
-            skybox.1,
-            factory.create_sampler(gfx::texture::SamplerInfo::new(
-                gfx::texture::FilterMethod::Bilinear,
-                gfx::texture::WrapMode::Clamp,
-            )),
-        ),
+        // skybox: (
+        //     skybox.1,
+        //     factory.create_sampler(gfx::texture::SamplerInfo::new(
+        //         gfx::texture::FilterMethod::Bilinear,
+        //         gfx::texture::WrapMode::Clamp,
+        //     )),
+        // ),
         t: 0. as f32,
         samples: 4,
     };
