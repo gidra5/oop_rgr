@@ -211,32 +211,36 @@ void main() {
   vec2 u_resolution = vec2(1280., 720.);
   vec2 uv = gl_FragCoord.xy / u_resolution;
 
-  vec3 obj_color = vec3(1.);
-  float depth = texture(depth_texture, uv).x;
+  // float depth = texture(depth_texture, uv).x;
+  // frag_color = vec4(vec3(depth), 1.); 
+  frag_color = vec4(texture(depth_texture, uv).xyz, 1.); 
+  // frag_color = vec4(texture(normal_texture, uv).xyz, 1.); 
+  // vec3 obj_color = vec3(1.);
+  // float depth = texture(depth_texture, uv).x;
 
-  vec3 p;
-  vec3 normal;
-  bool hit = false;
+  // vec3 p;
+  // vec3 normal;
+  // bool hit = false;
 
-  // if (false) {
-  if (depth != 1.) {
-    vec4 pos_texel = inverse(u_proj) * vec4(uv, depth, 1.);
-    p = pos_texel.xyz / pos_texel.w;
-    normal = texture(normal_texture, uv).xyz;
+  // // if (false) {
+  // if (depth != 1.) {
+  //   vec4 pos_texel = inverse(u_proj) * vec4(uv, depth, 1.);
+  //   p = pos_texel.xyz / pos_texel.w;
+  //   normal = texture(normal_texture, uv).xyz;
 
-    hit = true;
-  } else {
-    vec3 ray_origin = vec3(1, -1, 1) * u_view[3].xyz;
-    vec3 ray_dir = normalize(ray_end);
+  //   hit = true;
+  // } else {
+  //   vec3 ray_origin = vec3(1, -1, 1) * u_view[3].xyz;
+  //   vec3 ray_dir = normalize(ray_end);
 
-    p = raymarch(ray_origin, ray_dir, hit);
+  //   p = raymarch(ray_origin, ray_dir, hit);
 
-    normal = dist_scene_gradient(p, ray_dir);
-  }
+  //   normal = dist_scene_gradient(p, ray_dir);
+  // }
 
-  if (hit) {
-    frag_color += light(p, normal, light_pos, obj_color); // Diffuse lighting
-  } else {
-    frag_color = vec4(0.);
-  }
+  // if (hit) {
+  //   frag_color += light(p, normal, light_pos, obj_color); // Diffuse lighting
+  // } else {
+  //   frag_color = vec4(0.);
+  // }
 }
