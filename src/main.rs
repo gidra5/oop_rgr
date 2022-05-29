@@ -5,11 +5,10 @@ extern crate vecmath;
 
 #[macro_use]
 extern crate gfx;
-extern crate quaternion;
-extern crate shader_version;
-#[macro_use]
 extern crate conrod_core;
 extern crate conrod_piston;
+extern crate quaternion;
+extern crate shader_version;
 
 extern crate gfx_device_gl;
 
@@ -21,25 +20,23 @@ gfx_defines! {
     }
 
     pipeline pipe {
-        vbuf:            gfx::VertexBuffer  <  Vertex                   > = (),
-        u_proj:          gfx::Global        <  [[f32; 4]; 4]            > = "u_proj",
-        u_view:          gfx::Global        <  [[f32; 4]; 4]            > = "u_view",
-        light_pos:       gfx::Global        <  [f32; 3]                 > = "light_pos",
-        light_color:     gfx::Global        <  [f32; 3]                 > = "light_color",
-        u_res:           gfx::Global        <  [f32; 2]                 > = "u_resolution",
-        sphere_center:   gfx::Global        <  [f32; 3]                 > = "sphere_center",
-        plane_center:    gfx::Global        <  [f32; 3]                 > = "plane_center",
-        cylinder_center: gfx::Global        <  [f32; 3]                 > = "cylinder_center",
-        t:               gfx::Global        <  f32                      > = "t",
-        samples:         gfx::Global        <  u32                      > = "samples",
-        out_color:       gfx::RenderTarget  <::gfx::format::Srgba8      > = "frag_color",
+        vbuf:               gfx::VertexBuffer  <  Vertex                   > = (),
+        u_proj:             gfx::Global        <  [[f32; 4]; 4]            > = "u_proj",
+        u_view:             gfx::Global        <  [[f32; 4]; 4]            > = "u_view",
+        light_pos:          gfx::Global        <  [f32; 3]                 > = "light_pos",
+        light_color:        gfx::Global        <  [f32; 3]                 > = "light_color",
+        u_res:              gfx::Global        <  [f32; 2]                 > = "u_resolution",
+        sphere_center:      gfx::Global        <  [f32; 3]                 > = "sphere_center",
+        plane_center:       gfx::Global        <  [f32; 3]                 > = "plane_center",
+        cylinder_center:    gfx::Global        <  [f32; 3]                 > = "cylinder_center",
+        t:                  gfx::Global        <  f32                      > = "t",
+        aliasing_samples:   gfx::Global        <  u32                      > = "aliasing_samples",
+        lens_samples:       gfx::Global        <  u32                      > = "lens_samples",
+        light_samples:      gfx::Global        <  u32                      > = "light_samples",
+        reflection_samples: gfx::Global        <  u32                      > = "reflection_samples",
+        reflection_depth:   gfx::Global        <  u32                      > = "reflection_depth",
+        out_color:          gfx::RenderTarget  <::gfx::format::Srgba8      > = "frag_color",
         // skybox:          gfx::TextureSampler<  [f32; 4]                 > = "skybox",
-    }
-    pipeline blur_pipe {
-        vbuf:            gfx::VertexBuffer  <  Vertex                   > = (),
-        t:               gfx::Global        <  f32                      > = "t",
-        out_color:       gfx::RenderTarget  <::gfx::format::Srgba8      > = "frag_color",
-        // prev:            gfx::TextureSampler< [f32; 3]                  > = "prev", // array texture of 8 prev frames
     }
 }
 
@@ -54,8 +51,16 @@ widget_ids! {
         slider_light_pos_dy,
 
         text_light_color,
-        text_samples,
-        slider_samples,
+        text_aliasing_samples,
+        text_lens_samples,
+        text_light_samples,
+        text_reflection_samples,
+        text_reflection_depth,
+        slider_aliasing_samples,
+        slider_lens_samples,
+        slider_light_samples,
+        slider_reflection_samples,
+        slider_reflection_depth,
         xypad_light_color_hue_brightness,
         slider_light_color_r,
         slider_light_color_g,
@@ -105,12 +110,12 @@ fn main() {
 
     let opengl = OpenGL::V3_2;
 
-    let mut window: PistonWindow = WindowSettings::new("piston: cube", [1280, 720])
-        // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1920, 1080])
-        // let mut window: PistonWindow = WindowSettings::new("piston: cube", [2560, 1440])
+    // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1280, 720])
+    // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1920, 1080])
+    let mut window: PistonWindow = WindowSettings::new("piston: cube", [2560, 1440])
         .exit_on_esc(true)
         .graphics_api(opengl)
-        // .fullscreen(true)
+        .fullscreen(true)
         .build()
         .unwrap();
 
@@ -291,17 +296,66 @@ fn main() {
                     .top_left_with_margin_on(ui.window, MARGIN)
                     .set(ids.background, &mut ui);
 
-                widget::Text::new("Samples")
+                widget::Text::new("Subpixel Samples")
                     .mid_top_with_margin_on(ids.background, MARGIN)
                     .down(20.)
-                    .set(ids.text_samples, &mut ui);
-                for samples in widget::NumberDialer::new(data.samples as f32, 1., 256., 1)
+                    .set(ids.text_aliasing_samples, &mut ui);
+                for samples in widget::NumberDialer::new(data.aliasing_samples as f32, 1., 256., 1)
                     .w_h(50., 10.)
                     .x_relative_to(ids.background, 30.)
                     .down(20.)
-                    .set(ids.slider_samples, &mut ui)
+                    .set(ids.slider_aliasing_samples, &mut ui)
                 {
-                    data.samples = samples as u32;
+                    data.aliasing_samples = samples as u32;
+                }
+                widget::Text::new("Lens Samples")
+                    .mid_top_with_margin_on(ids.background, MARGIN)
+                    .down(20.)
+                    .set(ids.text_lens_samples, &mut ui);
+                for samples in widget::NumberDialer::new(data.lens_samples as f32, 1., 256., 1)
+                    .w_h(50., 10.)
+                    .x_relative_to(ids.background, 30.)
+                    .down(20.)
+                    .set(ids.slider_lens_samples, &mut ui)
+                {
+                    data.lens_samples = samples as u32;
+                }
+                widget::Text::new("Light Source Samples")
+                    .mid_top_with_margin_on(ids.background, MARGIN)
+                    .down(20.)
+                    .set(ids.text_light_samples, &mut ui);
+                for samples in widget::NumberDialer::new(data.light_samples as f32, 1., 256., 1)
+                    .w_h(50., 10.)
+                    .x_relative_to(ids.background, 30.)
+                    .down(20.)
+                    .set(ids.slider_light_samples, &mut ui)
+                {
+                    data.light_samples = samples as u32;
+                }
+                widget::Text::new("Reflection Samples")
+                    .mid_top_with_margin_on(ids.background, MARGIN)
+                    .down(20.)
+                    .set(ids.text_reflection_samples, &mut ui);
+                for samples in
+                    widget::NumberDialer::new(data.reflection_samples as f32, 1., 256., 1)
+                        .w_h(50., 10.)
+                        .x_relative_to(ids.background, 30.)
+                        .down(20.)
+                        .set(ids.slider_reflection_samples, &mut ui)
+                {
+                    data.reflection_samples = samples as u32;
+                }
+                widget::Text::new("Reflection Depth")
+                    .mid_top_with_margin_on(ids.background, MARGIN)
+                    .down(20.)
+                    .set(ids.text_reflection_depth, &mut ui);
+                for samples in widget::NumberDialer::new(data.reflection_depth as f32, 1., 256., 1)
+                    .w_h(50., 10.)
+                    .x_relative_to(ids.background, 30.)
+                    .down(20.)
+                    .set(ids.slider_reflection_depth, &mut ui)
+                {
+                    data.reflection_depth = samples as u32;
                 }
 
                 for toggled in widget::Toggle::new(light_menu)
@@ -622,33 +676,11 @@ fn setup(
         //     )),
         // ),
         t: 0. as f32,
-        samples: 4,
-    };
-    let blur_data = blur_pipe::Data {
-        vbuf: factory.create_vertex_buffer(&[
-            Vertex { pos: [1, 1] },
-            Vertex { pos: [-1, 1] },
-            Vertex { pos: [1, -1] },
-            Vertex { pos: [-1, -1] },
-            Vertex { pos: [-1, 1] },
-            Vertex { pos: [1, -1] },
-        ]),
-
-        out_color: window.output_color.clone(),
-        // prev: (
-        //     factory
-        //         .view_texture_as_shader_resource::<[f32; 3]>(
-        //             &prev,
-        //             (0, 1),
-        //             gfx::format::Swizzle::new(),
-        //         )
-        //         .unwrap(),
-        //     factory.create_sampler(gfx::texture::SamplerInfo::new(
-        //         gfx::texture::FilterMethod::Bilinear,
-        //         gfx::texture::WrapMode::Clamp,
-        //     )),
-        // ),
-        t: 0. as f32,
+        aliasing_samples: 1,
+        lens_samples: 1,
+        light_samples: 1,
+        reflection_samples: 1,
+        reflection_depth: 1,
     };
 
     data
