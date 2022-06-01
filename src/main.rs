@@ -12,6 +12,8 @@ extern crate shader_version;
 
 extern crate gfx_device_gl;
 
+const PI: f32 = 3.14159265358979323846264;
+
 use self::piston_window::texture::UpdateTexture;
 
 gfx_defines! {
@@ -20,22 +22,28 @@ gfx_defines! {
     }
 
     pipeline pipe {
-        vbuf:               gfx::VertexBuffer  <  Vertex                   > = (),
-        u_proj:             gfx::Global        <  [[f32; 4]; 4]            > = "u_proj",
-        u_view:             gfx::Global        <  [[f32; 4]; 4]            > = "u_view",
-        light_pos:          gfx::Global        <  [f32; 3]                 > = "light_pos",
-        light_color:        gfx::Global        <  [f32; 3]                 > = "light_color",
-        u_res:              gfx::Global        <  [f32; 2]                 > = "u_resolution",
-        sphere_center:      gfx::Global        <  [f32; 3]                 > = "sphere_center",
-        plane_center:       gfx::Global        <  [f32; 3]                 > = "plane_center",
-        cylinder_center:    gfx::Global        <  [f32; 3]                 > = "cylinder_center",
-        t:                  gfx::Global        <  f32                      > = "t",
-        aliasing_samples:   gfx::Global        <  u32                      > = "aliasing_samples",
-        lens_samples:       gfx::Global        <  u32                      > = "lens_samples",
-        light_samples:      gfx::Global        <  u32                      > = "light_samples",
-        reflection_samples: gfx::Global        <  u32                      > = "reflection_samples",
-        reflection_depth:   gfx::Global        <  u32                      > = "reflection_depth",
-        out_color:          gfx::RenderTarget  <::gfx::format::Srgba8      > = "frag_color",
+        vbuf:                       gfx::VertexBuffer  <  Vertex                   > = (),
+        u_proj:                     gfx::Global        <  [[f32; 4]; 4]            > = "u_proj",
+        u_view:                     gfx::Global        <  [[f32; 4]; 4]            > = "u_view",
+        light_pos:                  gfx::Global        <  [f32; 3]                 > = "light_pos",
+        light_color:                gfx::Global        <  [f32; 3]                 > = "light_color",
+        u_res:                      gfx::Global        <  [f32; 2]                 > = "u_resolution",
+        sphere_center:              gfx::Global        <  [f32; 3]                 > = "sphere_center",
+        plane_center:               gfx::Global        <  [f32; 3]                 > = "plane_center",
+        cylinder_center:            gfx::Global        <  [f32; 3]                 > = "cylinder_center",
+        t:                          gfx::Global        <  f32                      > = "t",
+        aliasing_samples:           gfx::Global        <  u32                      > = "aliasing_samples",
+        lens_samples:               gfx::Global        <  u32                      > = "lens_samples",
+        light_samples:              gfx::Global        <  u32                      > = "light_samples",
+        reflection_samples:         gfx::Global        <  u32                      > = "reflection_samples",
+        reflection_depth:           gfx::Global        <  u32                      > = "reflection_depth",
+        camera_fov_angle:           gfx::Global        <  f32                      > = "cameraFovAngle",
+        panini_distance:            gfx::Global        <  f32                      > = "paniniDistance",
+        vertical_compression:       gfx::Global        <  f32                      > = "verticalCompression",
+        image_plane_distance:       gfx::Global        <  f32                      > = "imagePlaneDistance",
+        lens_focal_length:          gfx::Global        <  f32                      > = "lensFocalLength",
+        circle_of_confusion_radius: gfx::Global        <  f32                      > = "circleOfConfusionRadius",
+        out_color:                  gfx::RenderTarget  <::gfx::format::Srgba8      > = "frag_color",
         // skybox:          gfx::TextureSampler<  [f32; 4]                 > = "skybox",
     }
 }
@@ -56,11 +64,23 @@ widget_ids! {
         text_light_samples,
         text_reflection_samples,
         text_reflection_depth,
+        text_camera_fov_angle,
+        text_panini_distance,
+        text_vertical_compression,
+        text_image_plane_distance,
+        text_lens_focal_length,
+        text_circle_of_confusion_radius,
         slider_aliasing_samples,
         slider_lens_samples,
         slider_light_samples,
         slider_reflection_samples,
         slider_reflection_depth,
+        slider_camera_fov_angle,
+        slider_panini_distance,
+        slider_vertical_compression,
+        slider_image_plane_distance,
+        slider_lens_focal_length,
+        slider_circle_of_confusion_radius,
         xypad_light_color_hue_brightness,
         slider_light_color_r,
         slider_light_color_g,
@@ -110,16 +130,18 @@ fn main() {
 
     let opengl = OpenGL::V3_2;
 
-    // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1280, 720])
-    // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1920, 1080])
-    let mut window: PistonWindow = WindowSettings::new("piston: cube", [2560, 1440])
+    let mut window: PistonWindow = WindowSettings::new("piston: cube", [1280, 720])
+        // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1920, 1080])
+        // let mut window: PistonWindow = WindowSettings::new("piston: cube", [2560, 1440])
         .exit_on_esc(true)
         .graphics_api(opengl)
-        .fullscreen(true)
+        // .fullscreen(true)
         .build()
         .unwrap();
 
     let ref mut factory = window.factory.clone();
+
+    let mut data = setup(&mut window, scaling);
 
     let pso = factory
         .create_pipeline_simple(
@@ -128,8 +150,6 @@ fn main() {
             pipe::new(),
         )
         .unwrap();
-
-    let mut data = setup(&mut window, scaling);
 
     let mut texture_context = window.create_texture_context();
     let (mut ui, mut glyph_cache, mut text_texture_cache, mut text_vertex_data) = {
@@ -296,6 +316,85 @@ fn main() {
                     .top_left_with_margin_on(ui.window, MARGIN)
                     .set(ids.background, &mut ui);
 
+                widget::Text::new("Field of View (degrees)")
+                    .mid_top_with_margin_on(ids.background, MARGIN)
+                    .down(20.)
+                    .set(ids.text_camera_fov_angle, &mut ui);
+                for degrees in widget::Slider::new(data.camera_fov_angle / PI * 180., 1., 180.)
+                    .w_h(50., 10.)
+                    .x_relative_to(ids.background, 30.)
+                    .down(20.)
+                    .set(ids.slider_camera_fov_angle, &mut ui)
+                {
+                    data.camera_fov_angle = degrees * PI / 180.;
+                }
+
+                // panini projection props
+                widget::Text::new("Panini Distance")
+                    .mid_top_with_margin_on(ids.background, MARGIN)
+                    .down(20.)
+                    .set(ids.text_panini_distance, &mut ui);
+                for d in widget::Slider::new(data.panini_distance, 0., 1.)
+                    .w_h(50., 10.)
+                    .x_relative_to(ids.background, 30.)
+                    .down(20.)
+                    .set(ids.slider_panini_distance, &mut ui)
+                {
+                    data.panini_distance = d;
+                }
+                widget::Text::new("Vertical Compression")
+                    .mid_top_with_margin_on(ids.background, MARGIN)
+                    .down(20.)
+                    .set(ids.text_vertical_compression, &mut ui);
+                for vertical_compression in widget::Slider::new(data.vertical_compression, 0., 1.)
+                    .w_h(50., 10.)
+                    .x_relative_to(ids.background, 30.)
+                    .down(20.)
+                    .set(ids.slider_vertical_compression, &mut ui)
+                {
+                    data.vertical_compression = vertical_compression;
+                }
+
+                // lens props
+                widget::Text::new("Image Distance Plane")
+                    .mid_top_with_margin_on(ids.background, MARGIN)
+                    .down(20.)
+                    .set(ids.text_image_plane_distance, &mut ui);
+                for image_plane_distance in
+                    widget::Slider::new(data.image_plane_distance, 0., 10000.)
+                        .w_h(50., 10.)
+                        .x_relative_to(ids.background, 30.)
+                        .down(20.)
+                        .set(ids.slider_image_plane_distance, &mut ui)
+                {
+                    data.image_plane_distance = image_plane_distance;
+                }
+                widget::Text::new("Focal Length")
+                    .mid_top_with_margin_on(ids.background, MARGIN)
+                    .down(20.)
+                    .set(ids.text_lens_focal_length, &mut ui);
+                for lens_focal_length in widget::Slider::new(data.lens_focal_length, 0., 10000.)
+                    .w_h(50., 10.)
+                    .x_relative_to(ids.background, 30.)
+                    .down(20.)
+                    .set(ids.slider_lens_focal_length, &mut ui)
+                {
+                    data.lens_focal_length = lens_focal_length;
+                }
+                widget::Text::new("Circle Of Confusion")
+                    .mid_top_with_margin_on(ids.background, MARGIN)
+                    .down(20.)
+                    .set(ids.text_circle_of_confusion_radius, &mut ui);
+                for circle_of_confusion_radius in
+                    widget::Slider::new(data.circle_of_confusion_radius, 0., 1.)
+                        .w_h(50., 10.)
+                        .x_relative_to(ids.background, 30.)
+                        .down(20.)
+                        .set(ids.slider_circle_of_confusion_radius, &mut ui)
+                {
+                    data.circle_of_confusion_radius = circle_of_confusion_radius;
+                }
+
                 widget::Text::new("Subpixel Samples")
                     .mid_top_with_margin_on(ids.background, MARGIN)
                     .down(20.)
@@ -349,7 +448,7 @@ fn main() {
                     .mid_top_with_margin_on(ids.background, MARGIN)
                     .down(20.)
                     .set(ids.text_reflection_depth, &mut ui);
-                for samples in widget::NumberDialer::new(data.reflection_depth as f32, 1., 256., 1)
+                for samples in widget::NumberDialer::new(data.reflection_depth as f32, 0., 8., 1)
                     .w_h(50., 10.)
                     .x_relative_to(ids.background, 30.)
                     .down(20.)
@@ -676,6 +775,12 @@ fn setup(
         //     )),
         // ),
         t: 0. as f32,
+        camera_fov_angle: PI * 2. / 3. as f32,
+        panini_distance: 0.75 as f32,
+        vertical_compression: 0.1 as f32,
+        image_plane_distance: 1. as f32,
+        lens_focal_length: 1.1 as f32,
+        circle_of_confusion_radius: 0.01 as f32,
         aliasing_samples: 1,
         lens_samples: 1,
         light_samples: 1,

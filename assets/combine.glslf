@@ -15,32 +15,33 @@ uniform uint aliasing_samples;
 uniform uint lens_samples;
 uniform uint light_samples;
 uniform uint reflection_samples;
-// uniform uint reflection_depth;
-const uint reflection_depth = uint(4);
+uniform uint reflection_depth;
 
-const   float max_dist  = 1000.;
+const   float max_dist  = 1000000.;
 const   float min_dist  = 0.0005;
-const   int   max_steps = 1000;
+// const   int   max_steps = 1000;
 
-const   float cameraFovAngle = PI * 2. / 3.;
-const   float paniniDistance = 0.75;
-const   float verticalCompression = 0.1;
-const   float halfFOV = cameraFovAngle / 2.f;
-const   vec2 p = vec2(sin(halfFOV), cos(halfFOV) + paniniDistance);
-const   float M = sqrt(dot(p, p));
-const   float halfPaniniFOV = atan(p.x, p.y);
+uniform float cameraFovAngle;
+uniform float paniniDistance;
+uniform float verticalCompression;
+// const   float cameraFovAngle = PI * 2. / 3.;
+// const   float paniniDistance = 0.75;
+// const   float verticalCompression = 0.1;
 
-const   float imagePlaneDistance = 1.;
-const   float lensFocalLength = 1.1;
-const   float circleOfConfusionRadius = 0.01;
+// const   float imagePlaneDistance = 1.;
+// const   float lensFocalLength = 1.1;
+// const   float circleOfConfusionRadius = 0.01;
+uniform float imagePlaneDistance;
+uniform float lensFocalLength;
+uniform float circleOfConfusionRadius;
 
 const mat3 triangle_pts = mat3(
   vec3(0.),
   vec3(0., 1., 0.),
   vec3(1., 1., 0.)
 );
-const vec3 sun_color = vec3(0x92, 0x97, 0xC4) / 0xff * 0.4;
-const float ambience = 0.02;
+const vec3 sun_color = vec3(0x92, 0x97, 0xC4) / 0xff * 0.9;
+const float ambience = 0.0;
 
 uniform vec3 light_pos;
 uniform vec3 light_color;
@@ -51,6 +52,11 @@ uniform vec3 cylinder_center;
 struct Ray {
   vec3 pos; // Origin
   vec3 dir; // Direction (normalized)
+};
+struct Hit {
+  vec3 pos;
+  vec3 normal;
+  vec3 color;
 };
 
 in vec3 ray_dir;
@@ -908,40 +914,66 @@ vec3 dist_scene_gradient(vec3 p) {
   return (vec3(raw_ds(p + e.xyy), raw_ds(p + e.yxy), raw_ds(p + e.yyx)) - d) / min_dist;
 }
 
-vec3 raymarch(Ray ray, out bool hit) {
-  vec3 origin = ray.pos;
-  vec3 dir = ray.dir;
-  vec3 p = origin;
-  hit = false;
+// vec3 raymarch(Ray ray, out bool hit) {
+//   vec3 origin = ray.pos;
+//   vec3 dir = ray.dir;
+//   vec3 p = origin;
+//   hit = false;
 
-  float d = 0.;
-  for (int steps = 0; steps < max_steps && d < max_dist && !hit; ++steps) {
-    float ds = dist_scene(Ray(p, dir));
-    // float ds = raw_ds(p);
+//   float d = 0.;
+//   for (int steps = 0; steps < max_steps && d < max_dist && !hit; ++steps) {
+//     float ds = dist_scene(Ray(p, dir));
+//     // float ds = raw_ds(p);
 
-    d += ds;
-    p += dir * ds;
+//     d += ds;
+//     p += dir * ds;
 
-    hit = ds < min_dist;
-  }
+//     hit = ds < min_dist;
+//   }
 
-  return p;
-}
+//   return p;
+// }
 
-float scene(Ray ray, out bool hit, out vec3 normal) {
+float scene(Ray ray, out bool hit, out vec3 normal, out vec3 color) {
   float d = max_dist;
-  bool _hit = false;
-  vec3 _normal = vec3(0.);
+  float d2;
+  color = vec3(1.);
 
-  d = min(d, iPlane(ray.pos - plane_center, ray.dir, vec2(0., d), _normal, vec3(0., 1., 0.), 0.));
-  _hit = _normal != vec3(0.);
-  d = min(d, iSphere(ray.pos - sphere_center, ray.dir, vec2(0., d), _normal, 1.));
-  _hit = _normal != vec3(0.);
-  d = min(d, iCylinder(ray.pos - sphere_center, ray.dir, vec2(0., d), _normal, vec3(0., 1., 1.), vec3(0., 2., 2.), 1.));
-  _hit = _normal != vec3(0.);
+  d2 = iPlane(ray.pos - plane_center, ray.dir, vec2(0., d), normal, vec3(0., 1., 0.), 0.);
+  hit = hit || d2 < d;
+  if (d2 < d) color = vec3(1., 1., 1.);
+  d = min(d, d2);
 
-  hit = _hit;
-  normal = _normal;
+  d2 = iSphere(ray.pos - sphere_center, ray.dir, vec2(0., d), normal, 1.);
+  hit = hit || d2 < d;
+  if (d2 < d) color = vec3(0., 1., 0.);
+  d = min(d, d2);
+
+  d2 = iCylinder(ray.pos - sphere_center, ray.dir, vec2(0., d), normal, vec3(0., 1., 1.), vec3(0., 2., 2.), 1.);
+  hit = hit || d2 < d;
+  if (d2 < d) color = vec3(1., 1., 1.);
+  d = min(d, d2);
+
+  d2 = iPlane(ray.pos - plane_center - vec3(-3., 0., 0.), ray.dir, vec2(0., d), normal, vec3(1., 0., 0.), 0.);
+  hit = hit || d2 < d;
+  if (d2 < d) color = vec3(1., 1., 1.);
+  d = min(d, d2);
+
+  // d2 = iPlane(ray.pos - plane_center - vec3(0., 0., 5.), ray.dir, vec2(0., d), normal, vec3(0., 0., -1.), 0.);
+  // hit = hit || d2 < d;
+  // if (d2 < d) color = vec3(1., 1., 0.);
+  // d = min(d, d2);
+
+  d2 = iBox(ray.pos - plane_center - vec3(0., 0., 5.), ray.dir, vec2(0., d), normal, vec3(20., 9., 0.1));
+  hit = hit || d2 < d;
+  if (d2 < d) color = vec3(1., 1., 0.);
+  d = min(d, d2);
+
+  d2 = iBox(ray.pos - plane_center - vec3(0., 0., -7.), ray.dir, vec2(0., d), normal, vec3(20., 9., 0.1));
+  hit = hit || d2 < d;
+  if (d2 < d) color = vec3(0., 1., 1.);
+  d = min(d, d2);
+
   return d;
 }
 
@@ -950,46 +982,42 @@ float scene(Ray ray, out bool hit, out vec3 normal) {
 
 
 
-vec3 sample_light_shape(float t) {
-  return light_pos + vec3(cos(t * TWO_PI), 0., sin(t * TWO_PI));
+vec3 sample_circle(float t) {
+  return vec3(cos(t * TWO_PI), 0., sin(t * TWO_PI));
+}
+vec3 sample_sphere(vec2 uv) {
+  float sinTheta = sqrt(1 - uv.x * uv.x); 
+  float phi = TWO_PI * uv.y; 
+  float x = sinTheta * cos(phi); 
+  float z = sinTheta * sin(phi); 
+  return vec3(x, uv.x, z); 
 }
 
-vec3 in_shadow(vec3 pos, vec3 light_dir, float mag_sq) {
-  if (1. > min_dist * min_dist * mag_sq) {
-    // float sin_a = 1.;
-    vec3 p = pos;
-    bool hit = false;
-    float d = 0.;
+float in_shadow(Ray ray, float mag_sq) {
+  bool hit;
+  vec3 normal;
+  vec3 color;
+  float ds = scene(ray, hit, normal, color);
 
-    for (int i = 0; i < max_steps && !hit; ++i) {
-      // float ds = dist_scene(Ray(p, light_dir));
-      vec3 normal;
-      float ds = scene(Ray(p, light_dir), hit, normal);
-
-      d += ds;
-      p += light_dir * ds;
-
-      if ( d * d >= mag_sq ) {
-        return light_dir;
-      }
-    }
-  }
-
-  return vec3(0.);
+  return !hit || ds * ds >= mag_sq ? 1. : 0.;
 }
+
+const float k = 1./(2.*TWO_PI);
 
 vec3 light(vec3 pos, vec3 norm, vec3 light_pos, vec3 light_color) {
     vec3 d = light_pos - pos;
     float mag_sq = dot(d, d);
-    vec3 color = in_shadow(pos + min_dist * norm, normalize(d), mag_sq) / mag_sq;
+    float mag = sqrt(mag_sq);
+    vec3 dir = d / mag;
+    float vis = in_shadow(Ray(pos + min_dist * norm, dir), mag_sq);
 
-    return max(dot(color, norm), 0.) * light_color + ambience * sun_color;
+    return vis * max(dot(dir, norm), 0.) * light_color / mag_sq;
 }
 vec3 sun(vec3 pos, vec3 norm) {
-    vec3 d = vec3(1.);
-    vec3 color = in_shadow(pos + min_dist * norm, normalize(d), 0.99 / (min_dist * min_dist));
+    vec3 dir = normalize(vec3(1., 1., -1.));
+    float vis = in_shadow(Ray(pos + min_dist * norm, dir), 0.99 / (min_dist * min_dist));
 
-    return (max(dot(color, norm), 0.) + ambience) * sun_color;
+    return (vis * max(dot(dir, norm), 0.) + ambience) * sun_color;
 }
 
 
@@ -998,10 +1026,14 @@ vec3 sun(vec3 pos, vec3 norm) {
 
 
 vec3 pinholeRay(vec2 pixel) { 
-  return vec3(pixel, 1/tan(halfFOV));
+  return vec3(pixel, 1/tan(cameraFovAngle / 2.f));
 }
 
 vec3 paniniRay(vec2 pixel) {
+  float halfFOV = cameraFovAngle / 2.f;
+  vec2 p = vec2(sin(halfFOV), cos(halfFOV) + paniniDistance);
+  float M = sqrt(dot(p, p));
+  float halfPaniniFOV = atan(p.x, p.y);
   vec2 hvPan = pixel * vec2(halfPaniniFOV, halfFOV);
   float x = sin(hvPan.x) * M;
   float z = cos(hvPan.x) * M - paniniDistance;
@@ -1029,6 +1061,7 @@ Ray thinLensRay(vec3 ray, vec2 lensOffset) {
 
 
 void main() {
+  vec3 _frag_color = vec3(0.);
   for (int x = 0; x < int(aliasing_samples); ++x) {
     vec2 subpixel = random_0t1_2(gl_FragCoord.xy, t * x + 0.5);
     vec2 uv = (2. * (gl_FragCoord.xy + subpixel) - u_resolution) / u_resolution.x;
@@ -1037,73 +1070,53 @@ void main() {
     vec3 subpixel_color = vec3(0.);
 
     for (int x = 0; x < int(lens_samples); ++x) {
-      Ray ray = thinLensRay(rayDirection, normalize(random_0t1_2(uv, t * x)));
+      Ray ray = thinLensRay(rayDirection, normalize(random_0t1_2(uv * t, t * x)));
       ray.dir = (u_view * vec4(normalize(ray.dir), 0.)).xyz;
       ray.dir = (u_view * vec4(rayDirection, 0.)).xyz;
       vec4 ray_pos = u_view * vec4(ray.pos, 1.);
       ray.pos = ray_pos.xyz / ray_pos.w;
 
-      vec3 obj_color = vec3(1.);
+      vec3 color = vec3(0.);
 
-      bool hit = false;
+      for (int x = 0; x < int(light_samples); ++x) {
+        vec3 _light_pos = light_pos + sample_circle(random_0t1(uv * t, t * x));
 
-      // vec3 p = raymarch(ray, hit);
-      // vec3 normal = normalize(dist_scene_gradient(p));
-      vec3 normal;
-      float d = scene(ray, hit, normal);
-      vec3 p = ray.pos + d * ray.dir;
+        vec3 refl_color = vec3(0.);
+        for (int x = 0; x < int(reflection_samples); ++x) {
+          vec3 pos[9];
+          vec3 norm[9];
+          vec3 colors[9];
+          vec3 indirect_color = vec3(0.);
 
-      if (hit) {
-        vec3 color = vec3(0.);
+          // generate ray path
+          bool hit = false;
+          float t = scene(ray, hit, norm[0], colors[0]);
+          pos[0] = ray.pos + t * ray.dir;
+          int i = 1;
 
-        for (int x = 0; x < int(light_samples); ++x) {
-          vec3 light_pos = sample_light_shape(random_0t1(uv, t * x));
+          for (; i < int(reflection_depth) + 1 && hit; ++i) {
+            vec3 d = sample_sphere(random_0t1_2(uv * t, t * x));
+            if (dot(d, norm[i - 1]) < 0.) d = -d;
 
-          vec3 refl_color = vec3(0.);
-          for (int x = 0; x < int(reflection_samples); ++x) {
-            vec3 pos[reflection_depth];
-            vec3 norm[reflection_depth];
-            vec3 indirect_color = vec3(0.);
-
-            // generate ray path
-            pos[0] = p;
-            norm[0] = normal;
-
-            int i = 1;
-            for (; i < int(reflection_depth); ++i) {
-              vec3 d = normalize(random_0t1_3(uv, t * x));
-              if (dot(d, norm[i - 1]) < 0.) d = -d;
-              bool hit;
-              float t = scene(Ray(pos[i - 1] + min_dist * norm[i - 1], d), hit, norm[i]);
-              if (!hit) {
-                ++i;
-                break;
-              }
-              
-              pos[i] = pos[i - 1] + t * d;
-            }
-
-            // brackpropagate color info
-            for (int j = i - 1; j >= 0; --j) {
-              indirect_color = 
-                (
-                  light(pos[j], norm[j], pos[j + 1], indirect_color) +  // indirect light
-                  light(pos[j], norm[j], light_pos, light_color)        // direct light
-                ) * obj_color + sun(pos[j], norm[j]);                   // sun light
-            }
-            refl_color += indirect_color;
+            float t = scene(Ray(pos[i - 1] + min_dist * norm[i - 1], d), hit, norm[i], colors[i]);
+            pos[i] = pos[i - 1] + t * d;
           }
 
-          color += refl_color / reflection_samples; // Diffuse lighting
+          // brackpropagate color info
+          for (int j = i - 1; j >= 0; --j) {
+            indirect_color = colors[j] * 
+              (dot(norm[j], normalize(pos[j + 1] - pos[j])) * indirect_color +  // indirect light
+              light(pos[j], norm[j], _light_pos, light_color) +       // direct light
+              sun(pos[j], norm[j]));  // sun light
+          }
+          refl_color += indirect_color;
         }
 
-        subpixel_color += color / light_samples; 
-      } else {
-        // subpixel_color = texture(skybox, ray.dir);
-        subpixel_color = vec3(0.);
+        color += refl_color / reflection_samples; // Diffuse lighting
       }
+      subpixel_color += color / light_samples; 
     }
-    frag_color += vec4(subpixel_color / lens_samples, 1);
+    _frag_color += subpixel_color / lens_samples;
   }
-  frag_color /= aliasing_samples;
+  frag_color = vec4(_frag_color / aliasing_samples, 1.);
 }
