@@ -39,7 +39,6 @@ gfx_defines! {
         reflection_depth:           gfx::Global        <  u32                      > = "reflection_depth",
         camera_fov_angle:           gfx::Global        <  f32                      > = "cameraFovAngle",
         panini_distance:            gfx::Global        <  f32                      > = "paniniDistance",
-        vertical_compression:       gfx::Global        <  f32                      > = "verticalCompression",
         image_plane_distance:       gfx::Global        <  f32                      > = "imagePlaneDistance",
         lens_focal_length:          gfx::Global        <  f32                      > = "lensFocalLength",
         circle_of_confusion_radius: gfx::Global        <  f32                      > = "circleOfConfusionRadius",
@@ -66,7 +65,6 @@ widget_ids! {
         text_reflection_depth,
         text_camera_fov_angle,
         text_panini_distance,
-        text_vertical_compression,
         text_image_plane_distance,
         text_lens_focal_length,
         text_circle_of_confusion_radius,
@@ -77,7 +75,6 @@ widget_ids! {
         slider_reflection_depth,
         slider_camera_fov_angle,
         slider_panini_distance,
-        slider_vertical_compression,
         slider_image_plane_distance,
         slider_lens_focal_length,
         slider_circle_of_confusion_radius,
@@ -130,9 +127,9 @@ fn main() {
 
     let opengl = OpenGL::V3_2;
 
-    let mut window: PistonWindow = WindowSettings::new("piston: cube", [1280, 720])
-        // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1920, 1080])
-        // let mut window: PistonWindow = WindowSettings::new("piston: cube", [2560, 1440])
+    // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1280, 720])
+    // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1920, 1080])
+    let mut window: PistonWindow = WindowSettings::new("piston: cube", [2560, 1440])
         .exit_on_esc(true)
         .graphics_api(opengl)
         // .fullscreen(true)
@@ -342,30 +339,17 @@ fn main() {
                 {
                     data.panini_distance = d;
                 }
-                widget::Text::new("Vertical Compression")
-                    .mid_top_with_margin_on(ids.background, MARGIN)
-                    .down(20.)
-                    .set(ids.text_vertical_compression, &mut ui);
-                for vertical_compression in widget::Slider::new(data.vertical_compression, 0., 1.)
-                    .w_h(50., 10.)
-                    .x_relative_to(ids.background, 30.)
-                    .down(20.)
-                    .set(ids.slider_vertical_compression, &mut ui)
-                {
-                    data.vertical_compression = vertical_compression;
-                }
 
                 // lens props
                 widget::Text::new("Image Distance Plane")
                     .mid_top_with_margin_on(ids.background, MARGIN)
                     .down(20.)
                     .set(ids.text_image_plane_distance, &mut ui);
-                for image_plane_distance in
-                    widget::Slider::new(data.image_plane_distance, 0., 10000.)
-                        .w_h(50., 10.)
-                        .x_relative_to(ids.background, 30.)
-                        .down(20.)
-                        .set(ids.slider_image_plane_distance, &mut ui)
+                for image_plane_distance in widget::Slider::new(data.image_plane_distance, 0., 10.)
+                    .w_h(50., 10.)
+                    .x_relative_to(ids.background, 30.)
+                    .down(20.)
+                    .set(ids.slider_image_plane_distance, &mut ui)
                 {
                     data.image_plane_distance = image_plane_distance;
                 }
@@ -373,7 +357,7 @@ fn main() {
                     .mid_top_with_margin_on(ids.background, MARGIN)
                     .down(20.)
                     .set(ids.text_lens_focal_length, &mut ui);
-                for lens_focal_length in widget::Slider::new(data.lens_focal_length, 0., 10000.)
+                for lens_focal_length in widget::Slider::new(data.lens_focal_length, 0., 10.)
                     .w_h(50., 10.)
                     .x_relative_to(ids.background, 30.)
                     .down(20.)
@@ -775,12 +759,11 @@ fn setup(
         //     )),
         // ),
         t: 0. as f32,
-        camera_fov_angle: PI * 2. / 3. as f32,
-        panini_distance: 0.75 as f32,
-        vertical_compression: 0.1 as f32,
+        camera_fov_angle: PI * 0.67,
+        panini_distance: 1.0 as f32,
         image_plane_distance: 1. as f32,
-        lens_focal_length: 1.1 as f32,
-        circle_of_confusion_radius: 0.01 as f32,
+        lens_focal_length: 0.1 as f32,
+        circle_of_confusion_radius: 0.05 as f32,
         aliasing_samples: 1,
         lens_samples: 1,
         light_samples: 1,
