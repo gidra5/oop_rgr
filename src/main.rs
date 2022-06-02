@@ -763,7 +763,7 @@ fn setup(
         panini_distance: 1.0 as f32,
         image_plane_distance: 1. as f32,
         lens_focal_length: 0.1 as f32,
-        circle_of_confusion_radius: 0.05 as f32,
+        circle_of_confusion_radius: 0.0 as f32,
         aliasing_samples: 1,
         lens_samples: 1,
         light_samples: 1,

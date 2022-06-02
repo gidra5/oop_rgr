@@ -983,7 +983,8 @@ vec2 sample_incircle(vec2 t) {
   float radius = sqrt(t.y);
   return vec2(cos(theta), sin(theta)) * radius;
 }
-vec3 sample_sphere(vec2 uv) {
+vec3 sample_sphere(vec2 _uv) {
+  vec2 uv = vec2(_uv.x * 2. - 1., _uv.y);
   float sinTheta = sqrt(1 - uv.x * uv.x); 
   float phi = TWO_PI * uv.y; 
   float x = sinTheta * cos(phi); 
@@ -1115,6 +1116,7 @@ void main() {
             vec3 d = sample_sphere(random_0t1_2(uv * t, t * x));
             if (dot(d, hitObjs[i - 1].normal) < 0.) d = -d;
             rays[i - 1].dir = d;
+            // rays[i - 1].dir = normalize(d + hitObjs[i - 1].normal);
 
             float t = scene(rays[i - 1], hit, hitObjs[i]);
             rays[i] = Ray(rays[i - 1].pos + t * d + min_dist * hitObjs[i].normal, vec3(0.));
