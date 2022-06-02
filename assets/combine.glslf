@@ -15,7 +15,7 @@ uniform uint aliasing_samples;
 uniform uint lens_samples;
 uniform uint light_samples;
 uniform uint reflection_samples;
-uniform uint reflection_depth;
+uniform uint gi_reflection_depth;
 
 const   float max_dist  = 1000000.;
 const   float min_dist  = 0.0005;
@@ -54,7 +54,6 @@ struct Ray {
   vec3 dir; // Direction (normalized)
 };
 struct Hit {
-  vec3 pos;
   vec3 normal;
   vec3 color;
 };
@@ -934,44 +933,38 @@ vec3 dist_scene_gradient(vec3 p) {
 //   return p;
 // }
 
-float scene(Ray ray, out bool hit, out vec3 normal, out vec3 color) {
+float scene(Ray ray, out bool hit, out Hit hitObj) {
   float d = max_dist;
   float d2;
-  color = vec3(1.);
 
-  d2 = iPlane(ray.pos - plane_center, ray.dir, vec2(0., d), normal, vec3(0., 1., 0.), 0.);
+  d2 = iPlane(ray.pos - plane_center, ray.dir, vec2(0., d), hitObj.normal, vec3(0., 1., 0.), 0.);
   hit = hit || d2 < d;
-  if (d2 < d) color = vec3(1., 1., 1.);
+  if (d2 < d) hitObj.color = vec3(1., 1., 1.);
   d = min(d, d2);
 
-  d2 = iSphere(ray.pos - sphere_center, ray.dir, vec2(0., d), normal, 1.);
+  d2 = iSphere(ray.pos - sphere_center, ray.dir, vec2(0., d), hitObj.normal, 1.);
   hit = hit || d2 < d;
-  if (d2 < d) color = vec3(0., 1., 0.);
+  if (d2 < d) hitObj.color = vec3(0., 1., 0.);
   d = min(d, d2);
 
-  d2 = iCylinder(ray.pos - sphere_center, ray.dir, vec2(0., d), normal, vec3(0., 1., 1.), vec3(0., 2., 2.), 1.);
+  d2 = iCylinder(ray.pos - sphere_center, ray.dir, vec2(0., d), hitObj.normal, vec3(0., 1., 1.), vec3(0., 2., 2.), 1.);
   hit = hit || d2 < d;
-  if (d2 < d) color = vec3(1., 1., 1.);
+  if (d2 < d) hitObj.color = vec3(1., 1., 1.);
   d = min(d, d2);
 
-  d2 = iPlane(ray.pos - plane_center - vec3(-3., 0., 0.), ray.dir, vec2(0., d), normal, vec3(1., 0., 0.), 0.);
+  d2 = iPlane(ray.pos - plane_center - vec3(-3., 0., 0.), ray.dir, vec2(0., d), hitObj.normal, vec3(1., 0., 0.), 0.);
   hit = hit || d2 < d;
-  if (d2 < d) color = vec3(1., 1., 1.);
+  if (d2 < d) hitObj.color = vec3(1., 1., 1.);
   d = min(d, d2);
 
-  // d2 = iPlane(ray.pos - plane_center - vec3(0., 0., 5.), ray.dir, vec2(0., d), normal, vec3(0., 0., -1.), 0.);
-  // hit = hit || d2 < d;
-  // if (d2 < d) color = vec3(1., 1., 0.);
-  // d = min(d, d2);
-
-  d2 = iBox(ray.pos - plane_center - vec3(0., 0., 5.), ray.dir, vec2(0., d), normal, vec3(20., 9., 0.1));
+  d2 = iBox(ray.pos - plane_center - vec3(0., 0., 5.), ray.dir, vec2(0., d), hitObj.normal, vec3(20., 9., 0.1));
   hit = hit || d2 < d;
-  if (d2 < d) color = vec3(1., 1., 0.);
+  if (d2 < d) hitObj.color = vec3(1., 1., 0.);
   d = min(d, d2);
 
-  d2 = iBox(ray.pos - plane_center - vec3(0., 0., -7.), ray.dir, vec2(0., d), normal, vec3(20., 9., 0.1));
+  d2 = iBox(ray.pos - plane_center - vec3(0., 0., -7.), ray.dir, vec2(0., d), hitObj.normal, vec3(20., 9., 0.1));
   hit = hit || d2 < d;
-  if (d2 < d) color = vec3(0., 1., 1.);
+  if (d2 < d) hitObj.color = vec3(0., 1., 1.);
   d = min(d, d2);
 
   return d;
@@ -1000,9 +993,8 @@ vec3 sample_sphere(vec2 uv) {
 
 float in_shadow(Ray ray, float mag_sq) {
   bool hit;
-  vec3 normal;
-  vec3 color;
-  float ds = scene(ray, hit, normal, color);
+  Hit hitObj;
+  float ds = scene(ray, hit, hitObj);
 
   return !hit || ds * ds >= mag_sq ? 1. : 0.;
 }
@@ -1086,39 +1078,60 @@ void main() {
 
         vec3 refl_color = vec3(0.);
         for (int x = 0; x < int(reflection_samples); ++x) {
-          Ray rays[9];
-          vec3 norm[9];
-          vec3 colors[9];
+          Ray rays[10];
+          Hit hitObjs[9];
           vec3 indirect_color = vec3(0.);
+
+          // // generate ray path
+          // bool hit = true;
+          // int i = 0;
+          // rays[0] = ray;
+
+          // for (; i < int(gi_reflection_depth) + 2 && hit; ++i) {
+          //   hit = false;
+          //   float _t = scene(rays[i], hit, hitObjs[i]);
+          //   vec3 d = sample_sphere(random_0t1_2(uv * t, t * x));
+          //   vec3 pos = rays[i].pos + _t * rays[i].dir + min_dist * hitObjs[i].normal;
+          //   if (dot(d, hitObjs[i].normal) < 0.) d = -d;
+          //   rays[i + 1] = Ray(pos, d);
+          // }
+
+          // // brackpropagate color info
+          // for (int j = i - 1; j >= 1; --j) {
+          //   vec3 light = 
+          //     dot(hitObjs[j - 1].normal, rays[j].dir) * indirect_color +
+          //     light(rays[j].pos, hitObjs[j - 1].normal, _light_pos, light_color) +
+          //     sun(rays[j].pos, hitObjs[j - 1].normal);
+          //   indirect_color = hitObjs[j - 1].color * light;  
+          // }
 
           // generate ray path
           bool hit = false;
-          float t = scene(ray, hit, norm[0], colors[0]);
-          rays[0] = Ray(ray.pos + t * ray.dir + min_dist * norm[0], vec3(0.));
+          float t = scene(ray, hit, hitObjs[0]);
+          rays[0] = Ray(ray.pos + t * ray.dir + min_dist * hitObjs[0].normal, vec3(0.));
           int i = 1;
 
-          for (; i < int(reflection_depth) + 1 && hit; ++i) {
+          for (; i < int(gi_reflection_depth) + 1 && hit; ++i) {
             vec3 d = sample_sphere(random_0t1_2(uv * t, t * x));
-            if (dot(d, norm[i - 1]) < 0.) d = -d;
+            if (dot(d, hitObjs[i - 1].normal) < 0.) d = -d;
             rays[i - 1].dir = d;
-            // rays[i - 1].dir = normalize(d + norm[i - 1]);
 
-            float t = scene(rays[i - 1], hit, norm[i], colors[i]);
-            rays[i] = Ray(rays[i - 1].pos + t * d + min_dist * norm[i], vec3(0.));
+            float t = scene(rays[i - 1], hit, hitObjs[i]);
+            rays[i] = Ray(rays[i - 1].pos + t * d + min_dist * hitObjs[i].normal, vec3(0.));
           }
 
           // brackpropagate color info
           for (int j = i - 1; j >= 0; --j) {
             vec3 light = 
-              dot(norm[j], rays[j].dir) * indirect_color +
-              light(rays[j].pos, norm[j], _light_pos, light_color) +
-              sun(rays[j].pos, norm[j]);
-            indirect_color = colors[j] * light;  
+              dot(hitObjs[j].normal, rays[j].dir) * indirect_color +
+              light(rays[j].pos, hitObjs[j].normal, _light_pos, light_color) +
+              sun(rays[j].pos, hitObjs[j].normal);
+            indirect_color = hitObjs[j].color * light;  
           }
           refl_color += indirect_color;
         }
 
-        color += refl_color / reflection_samples; // Diffuse lighting
+        color += refl_color / reflection_samples;
       }
       subpixel_color += color / light_samples; 
     }

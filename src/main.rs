@@ -36,7 +36,7 @@ gfx_defines! {
         lens_samples:               gfx::Global        <  u32                      > = "lens_samples",
         light_samples:              gfx::Global        <  u32                      > = "light_samples",
         reflection_samples:         gfx::Global        <  u32                      > = "reflection_samples",
-        reflection_depth:           gfx::Global        <  u32                      > = "reflection_depth",
+        gi_reflection_depth:        gfx::Global        <  u32                      > = "gi_reflection_depth",
         camera_fov_angle:           gfx::Global        <  f32                      > = "cameraFovAngle",
         panini_distance:            gfx::Global        <  f32                      > = "paniniDistance",
         image_plane_distance:       gfx::Global        <  f32                      > = "imagePlaneDistance",
@@ -62,7 +62,7 @@ widget_ids! {
         text_lens_samples,
         text_light_samples,
         text_reflection_samples,
-        text_reflection_depth,
+        text_gi_reflection_depth,
         text_camera_fov_angle,
         text_panini_distance,
         text_image_plane_distance,
@@ -72,7 +72,7 @@ widget_ids! {
         slider_lens_samples,
         slider_light_samples,
         slider_reflection_samples,
-        slider_reflection_depth,
+        slider_gi_reflection_depth,
         slider_camera_fov_angle,
         slider_panini_distance,
         slider_image_plane_distance,
@@ -431,14 +431,14 @@ fn main() {
                 widget::Text::new("Reflection Depth")
                     .mid_top_with_margin_on(ids.background, MARGIN)
                     .down(20.)
-                    .set(ids.text_reflection_depth, &mut ui);
-                for samples in widget::NumberDialer::new(data.reflection_depth as f32, 0., 8., 1)
+                    .set(ids.text_gi_reflection_depth, &mut ui);
+                for samples in widget::NumberDialer::new(data.gi_reflection_depth as f32, 0., 8., 1)
                     .w_h(50., 10.)
                     .x_relative_to(ids.background, 30.)
                     .down(20.)
-                    .set(ids.slider_reflection_depth, &mut ui)
+                    .set(ids.slider_gi_reflection_depth, &mut ui)
                 {
-                    data.reflection_depth = samples as u32;
+                    data.gi_reflection_depth = samples as u32;
                 }
 
                 for toggled in widget::Toggle::new(light_menu)
@@ -768,7 +768,7 @@ fn setup(
         lens_samples: 1,
         light_samples: 1,
         reflection_samples: 1,
-        reflection_depth: 1,
+        gi_reflection_depth: 1,
     };
 
     data
