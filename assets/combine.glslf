@@ -1,24 +1,36 @@
-#version 150 core
-precision highp float;
+#version 330 core
 
 #define PHI 1.61803398874989484820459 // Golden Ratio   
 #define SRT 1.41421356237309504880169 // Square Root of Two
 #define PI 3.14159265358979323846264
 #define TWO_PI 6.28318530717958647692528
+#define E 2.71828182845904523536028
+const uint TYPE_DIFFUSE = 0x00000000u;
+const uint TYPE_REFLECTIVE = 0x00000001u;
+const uint TYPE_REFRACTIVE = 0x00000002u;
 
 uniform mat4 u_proj;
 uniform mat4 u_view;
 uniform vec2 u_resolution;
 uniform samplerCube skybox;
 uniform float t;
+uniform float dt;
+uniform uint a;
+uniform uint b;
+uniform uint c;
+uniform uint d;
+uniform uint e;
+uniform uint f;
+
 uniform uint aliasing_samples;
+uniform uint pixel_samples;
 uniform uint lens_samples;
 uniform uint light_samples;
 uniform uint reflection_samples;
 uniform uint gi_reflection_depth;
 
-const   float max_dist  = 1000000.;
-const   float min_dist  = 0.0005;
+uniform float max_dist;
+uniform float min_dist;
 // const   int   max_steps = 1000;
 
 uniform float cameraFovAngle;
@@ -31,8 +43,7 @@ uniform float paniniDistance;
 // const   float imagePlaneDistance = 1.;
 // const   float lensFocalLength = 1.1;
 // const   float circleOfConfusionRadius = 0.01;
-uniform float imagePlaneDistance;
-uniform float lensFocalLength;
+uniform float lensFocusDistance;
 uniform float circleOfConfusionRadius;
 
 const mat3 triangle_pts = mat3(
@@ -53,9 +64,24 @@ struct Ray {
   vec3 pos; // Origin
   vec3 dir; // Direction (normalized)
 };
+
+struct Light {
+  vec3 pos; 
+  vec3 color; 
+};
+
 struct Hit {
   vec3 normal;
+  float unabsorbed;
   vec3 color;
+
+  uint type;
+
+  // TYPE_REFLECTIVE
+  float reflection_fuzz;
+
+  // TYPE_REFRACTIVE
+  float refraction_index;
 };
 
 in vec3 ray_dir;
@@ -65,23 +91,92 @@ out vec4 frag_color;
 
 
 
+/* 
+if (int(a) == 0) {
+} else if (int(a) == 1) {
+} else if (int(a) == 2) {
+} else if (int(a) == 3) {
+} else {
+} 
+*/
 
 
-float random_0t1(in vec2 coordinate, in float seed) {
+float _rand = 0.;
+
+// base rng
+float random_0t1(in float x, in float seed) {
   int base = 1<<9;
   int modulo = 1<<10;
-  float seed_mod = fract(seed / modulo) * modulo + base;
-  return fract(sin(dot(coordinate * seed_mod, vec2(PHI, PI)) * .1) * SRT * 10000.0);
-  // return fract(sin(dot(coordinate * seed, vec2(PHI, PI)) * .1) * SRT * 10000.0);
+  _rand = fract(_rand + PHI);
+  float seed_mod = fract((seed + t) / modulo) * modulo + base;
+  return fract(sin(x * seed_mod * _rand) * SRT * 10000.0);
+}
+float random_0t1(in vec2 coordinate, in float seed) {
+  return random_0t1(dot(coordinate, vec2(PHI, PI)), seed);
+}
+float random_0t1(in vec3 coordinate, in float seed) {
+  return random_0t1(dot(coordinate, vec3(PHI, PI, SRT)), seed);
+}
+float random_0t1(in vec4 coordinate, in float seed) {
+  return random_0t1(dot(coordinate, vec4(PHI, PI, SRT, E)), seed);
+}
+
+vec2 random_0t1_2(in float coordinate, in float seed) {
+  return vec2(random_0t1(coordinate, seed), random_0t1(coordinate, seed * 0.5 + 3.));
 }
 vec2 random_0t1_2(in vec2 coordinate, in float seed) {
   return vec2(random_0t1(coordinate, seed), random_0t1(coordinate, seed * 0.5 + 3.));
 }
+vec2 random_0t1_2(in vec3 coordinate, in float seed) {
+  return vec2(random_0t1(coordinate, seed), random_0t1(coordinate, seed * 0.5 + 3.));
+}
+vec2 random_0t1_2(in vec4 coordinate, in float seed) {
+  return vec2(random_0t1(coordinate, seed), random_0t1(coordinate, seed * 0.5 + 3.));
+}
+
+vec3 random_0t1_3(in float coordinate, in float seed) {
+  return vec3(random_0t1_2(coordinate, seed), random_0t1(coordinate, seed * 0.75 + 2.));
+}
 vec3 random_0t1_3(in vec2 coordinate, in float seed) {
   return vec3(random_0t1_2(coordinate, seed), random_0t1(coordinate, seed * 0.75 + 2.));
 }
+vec3 random_0t1_3(in vec3 coordinate, in float seed) {
+  return vec3(random_0t1_2(coordinate, seed), random_0t1(coordinate, seed * 0.75 + 2.));
+}
+vec3 random_0t1_3(in vec4 coordinate, in float seed) {
+  return vec3(random_0t1_2(coordinate, seed), random_0t1(coordinate, seed * 0.75 + 2.));
+}
+
+vec4 random_0t1_4(in float coordinate, in float seed) {
+  return vec4(random_0t1_3(coordinate, seed), random_0t1(coordinate, seed * 0.85 + 1.));
+}
 vec4 random_0t1_4(in vec2 coordinate, in float seed) {
   return vec4(random_0t1_3(coordinate, seed), random_0t1(coordinate, seed * 0.85 + 1.));
+}
+vec4 random_0t1_4(in vec3 coordinate, in float seed) {
+  return vec4(random_0t1_3(coordinate, seed), random_0t1(coordinate, seed * 0.85 + 1.));
+}
+vec4 random_0t1_4(in vec4 coordinate, in float seed) {
+  return vec4(random_0t1_3(coordinate, seed), random_0t1(coordinate, seed * 0.85 + 1.));
+}
+
+#define NEWTON_ITER 2
+#define HALLEY_ITER 1
+
+float cbrt( float x )
+{
+	float y = sign(x) * uintBitsToFloat( floatBitsToUint( abs(x) ) / 3u + 0x2a514067u );
+
+	for( int i = 0; i < NEWTON_ITER; ++i )
+    	y = ( 2. * y + x / ( y * y ) ) * .333333333;
+
+    for( int i = 0; i < HALLEY_ITER; ++i )
+    {
+    	float y3 = y * y * y;
+        y *= ( y3 + 2. * x ) / ( 2. * y3 + x );
+    }
+    
+    return y;
 }
 
 
@@ -675,6 +770,7 @@ float iSphere4( in vec3 ro, in vec3 rd, in vec2 distBound, inout vec3 normal,
 }
 
 // Goursat:         https://www.shadertoy.com/view/3lj3DW
+
 float cuberoot( float x ) { return sign(x)*pow(abs(x),1.0/3.0); }
 
 float iGoursat( in vec3 ro, in vec3 rd, in vec2 distBound, inout vec3 normal,
@@ -933,38 +1029,136 @@ vec3 dist_scene_gradient(vec3 p) {
 //   return p;
 // }
 
-float scene(Ray ray, out bool hit, out Hit hitObj) {
+float scene(in Ray ray, out bool hit, out Hit hitObj) {
   float d = max_dist;
   float d2;
 
-  d2 = iPlane(ray.pos - plane_center, ray.dir, vec2(0., d), hitObj.normal, vec3(0., 1., 0.), 0.);
+  d2 = iPlane(ray.pos - plane_center, ray.dir, vec2(min_dist, d), hitObj.normal, vec3(0., 1., 0.), 0.);
   hit = hit || d2 < d;
-  if (d2 < d) hitObj.color = vec3(1., 1., 1.);
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_DIFFUSE;
+  }
   d = min(d, d2);
 
-  d2 = iSphere(ray.pos - sphere_center, ray.dir, vec2(0., d), hitObj.normal, 1.);
+  d2 = iSphere(ray.pos - sphere_center, ray.dir, vec2(min_dist, d), hitObj.normal, 1.);
   hit = hit || d2 < d;
-  if (d2 < d) hitObj.color = vec3(0., 1., 0.);
+  if (d2 < d) {
+    hitObj.color = vec3(0., 1., 0.);
+    hitObj.type = TYPE_REFLECTIVE;
+    hitObj.reflection_fuzz = 0.04;
+  }
   d = min(d, d2);
 
-  d2 = iCylinder(ray.pos - sphere_center, ray.dir, vec2(0., d), hitObj.normal, vec3(0., 1., 1.), vec3(0., 2., 2.), 1.);
+  // d2 = iCylinder(ray.pos - sphere_center, ray.dir, vec2(0., d), hitObj.normal, vec3(0., 1., 1.), vec3(0., 2., 2.), 1.);
+  d2 = iSphere(ray.pos - sphere_center - vec3(1., 2., 0.), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
   hit = hit || d2 < d;
-  if (d2 < d) hitObj.color = vec3(1., 1., 1.);
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFRACTIVE;
+    hitObj.refraction_index = 1.5;
+  }
   d = min(d, d2);
 
-  d2 = iPlane(ray.pos - plane_center - vec3(-3., 0., 0.), ray.dir, vec2(0., d), hitObj.normal, vec3(1., 0., 0.), 0.);
+  d2 = iSphere(ray.pos - sphere_center - vec3(1.5, -.5, 1.5), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
   hit = hit || d2 < d;
-  if (d2 < d) hitObj.color = vec3(1., 1., 1.);
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFRACTIVE;
+    hitObj.refraction_index = 1.01;
+  }
+  d = min(d, d2);
+  d2 = iSphere(ray.pos - sphere_center - vec3(2.5, -.5, 1.5), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFRACTIVE;
+    hitObj.refraction_index = 1.11;
+  }
+  d = min(d, d2);
+  d2 = iSphere(ray.pos - sphere_center - vec3(3.5, -.5, 1.5), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFRACTIVE;
+    hitObj.refraction_index = 1.11;
+  }
+  d = min(d, d2);
+  d2 = iSphere(ray.pos - sphere_center - vec3(4.5, -.5, 1.5), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFRACTIVE;
+    hitObj.refraction_index = 1.31;
+  }
+  d = min(d, d2);
+  d2 = iSphere(ray.pos - sphere_center - vec3(5.5, -.5, 1.5), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFRACTIVE;
+    hitObj.refraction_index = 1.61;
+  }
+  d = min(d, d2);
+  d2 = iSphere(ray.pos - sphere_center - vec3(6.5, -.5, 1.5), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFRACTIVE;
+    hitObj.refraction_index = 2.01;
+  }
+  d = min(d, d2);
+  d2 = iSphere(ray.pos - sphere_center - vec3(2.5, -.5, 2.5), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFRACTIVE;
+    hitObj.refraction_index = 5.01;
+  }
+  d = min(d, d2);
+  d2 = iSphere(ray.pos - sphere_center - vec3(0., 0., 2.), ray.dir, vec2(min_dist, d), hitObj.normal, 1.);
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFLECTIVE;
+    hitObj.reflection_fuzz = 0.;
+  }
   d = min(d, d2);
 
-  d2 = iBox(ray.pos - plane_center - vec3(0., 0., 5.), ray.dir, vec2(0., d), hitObj.normal, vec3(20., 9., 0.1));
+  d2 = iPlane(ray.pos - plane_center - vec3(-3., 0., 0.), ray.dir, vec2(min_dist, d), hitObj.normal, vec3(1., 0., 0.), 0.);
   hit = hit || d2 < d;
-  if (d2 < d) hitObj.color = vec3(1., 1., 0.);
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_DIFFUSE;
+  }
   d = min(d, d2);
 
-  d2 = iBox(ray.pos - plane_center - vec3(0., 0., -7.), ray.dir, vec2(0., d), hitObj.normal, vec3(20., 9., 0.1));
+  d2 = iBox(ray.pos - plane_center - vec3(0., 0., 5.), ray.dir, vec2(min_dist, d), hitObj.normal, vec3(20., 9., 0.1));
   hit = hit || d2 < d;
-  if (d2 < d) hitObj.color = vec3(0., 1., 1.);
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 0.);
+    hitObj.type = TYPE_DIFFUSE;
+    // hitObj.type = TYPE_REFRACTIVE;
+    // hitObj.refraction_index = 1.31;
+  }
+  d = min(d, d2);
+
+  d2 = iBox(ray.pos - plane_center - vec3(0., 0., -7.), ray.dir, vec2(min_dist, d), hitObj.normal, vec3(20., 9., 0.1));
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(0., 1., 1.);
+    hitObj.type = TYPE_DIFFUSE;
+    // hitObj.type = TYPE_REFRACTIVE;
+    // hitObj.refraction_index = 1.31;
+  }
+  d = min(d, d2);
+
+  d2 = iBox(ray.pos - plane_center - vec3(0., 8., 0.), ray.dir, vec2(min_dist, d), hitObj.normal, vec3(20., 0.1, 20.));
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_DIFFUSE;
+  }
   d = min(d, d2);
 
   return d;
@@ -975,24 +1169,29 @@ float scene(Ray ray, out bool hit, out Hit hitObj) {
 
 
 
-vec2 sample_circle(float t) {
-  return vec2(cos(t * TWO_PI), sin(t * TWO_PI));
+vec2 sample_circle(in float t) {
+  float phi = t * TWO_PI;
+  return vec2(cos(phi), sin(phi));
 }
-vec2 sample_incircle(vec2 t) {
-  float theta = t.x * TWO_PI;
-  float radius = sqrt(t.y);
-  return vec2(cos(theta), sin(theta)) * radius;
+vec2 sample_incircle(in vec2 t) {
+  return sample_circle(t.x) * sqrt(t.y);
 }
-vec3 sample_sphere(vec2 _uv) {
-  vec2 uv = vec2(_uv.x * 2. - 1., _uv.y);
+vec3 sample_sphere(in vec2 t) {
+  vec2 uv = vec2(t.x * 2. - 1., t.y);
   float sinTheta = sqrt(1 - uv.x * uv.x); 
   float phi = TWO_PI * uv.y; 
   float x = sinTheta * cos(phi); 
   float z = sinTheta * sin(phi); 
   return vec3(x, uv.x, z); 
 }
+vec3 sample_insphere(in vec3 t) {
+  return sample_sphere(t.xy) * cbrt(t.z); 
+}
+vec2 sample_insquare(in vec2 t) {
+  return (2. * t - 1.); 
+}
 
-float in_shadow(Ray ray, float mag_sq) {
+float in_shadow(in Ray ray, in float mag_sq) {
   bool hit;
   Hit hitObj;
   float ds = scene(ray, hit, hitObj);
@@ -1002,32 +1201,44 @@ float in_shadow(Ray ray, float mag_sq) {
 
 const float k = 1./(2.*TWO_PI);
 
-vec3 light(vec3 pos, vec3 norm, vec3 light_pos, vec3 light_color) {
-    vec3 d = light_pos - pos;
-    float mag_sq = dot(d, d);
-    float mag = sqrt(mag_sq);
-    vec3 dir = d / mag;
-    float vis = in_shadow(Ray(pos + min_dist * norm, dir), mag_sq);
-
-    return vis * max(dot(dir, norm), 0.) * light_color / mag_sq;
-}
-vec3 sun(vec3 pos, vec3 norm) {
-    vec3 dir = normalize(vec3(1., 1., -1.));
-    float vis = in_shadow(Ray(pos + min_dist * norm, dir), 0.99 / (min_dist * min_dist));
-
-    return (vis * max(dot(dir, norm), 0.) + ambience) * sun_color;
+Light sample_light(in vec2 _p) {
+  vec2 p = 2. * sample_insquare(_p);
+  return Light(light_pos + vec3(p.x, 0., p.y), 4. * light_color);
 }
 
+vec3 _light(in vec3 pos, in vec3 norm, in Light light) {
+  vec3 d = light.pos - pos;
+  float mag_sq = dot(d, d);
+  float mag = sqrt(mag_sq);
+  vec3 dir = d / mag;
+  float vis = in_shadow(Ray(pos, dir), mag_sq);
+
+  return vis * max(dot(dir, norm), 0.) * light.color / mag_sq;
+}
+
+vec3 light(in vec3 pos, in vec3 norm, in vec2 t) {
+  Light light = sample_light(t);
+
+  return _light(pos, norm, light);
+}
+
+vec3 sun(in vec3 pos, in vec3 norm) {
+  vec3 dir = normalize(vec3(1., 1., -1.));
+  float vis = in_shadow(Ray(pos, dir), 0.99 / (min_dist * min_dist));
+
+  return (vis * max(dot(dir, norm), 0.) + ambience) * sun_color;
+}
 
 
 
 
 
-vec3 pinholeRay(vec2 pixel) { 
+
+vec3 pinholeRay(in vec2 pixel) { 
   return vec3(pixel, 1/tan(cameraFovAngle / 2.f));
 }
 
-vec3 paniniRay(vec2 pixel) {
+vec3 paniniRay(in vec2 pixel) {
   float halfFOV = cameraFovAngle / 2.f;
   vec2 p = vec2(sin(halfFOV), cos(halfFOV) + paniniDistance);
   float M = sqrt(dot(p, p));
@@ -1041,16 +1252,21 @@ vec3 paniniRay(vec2 pixel) {
   return vec3(x, y, z);
 }
 
-Ray thinLensRay(vec3 ray, vec2 uv) {
-  float focusPlane = (imagePlaneDistance * lensFocalLength) / (imagePlaneDistance - lensFocalLength);
-  vec3 focusPoint = ray * (focusPlane / ray.z);
-
+Ray thinLensRay(in vec3 ray, in vec2 uv) {
   vec3 origin = vec3(uv * circleOfConfusionRadius, 0.f);
-  vec3 direction = -normalize(focusPoint + origin);
+  vec3 direction = normalize(ray * lensFocusDistance - origin);
   return Ray(origin, direction);
 }
 
 
+
+
+float reflectance(float cos_angle, float refraction_index) {
+  // Use Schlick's approximation for reflectance.
+  float r0 = (1-refraction_index) / (1+refraction_index);
+  r0 = r0 * r0;
+  return r0 + (1 - r0) * pow((1 - cos_angle), 5);
+}
 
 
 
@@ -1058,86 +1274,88 @@ Ray thinLensRay(vec3 ray, vec2 uv) {
 void main() {
   vec3 _frag_color = vec3(0.);
   for (int x = 0; x < int(aliasing_samples); ++x) {
-    vec2 subpixel = random_0t1_2(gl_FragCoord.xy * t, t * x + 0.5);
+    vec2 subpixel = random_0t1_2(gl_FragCoord.xy, x);
     vec2 uv = (2. * (gl_FragCoord.xy + subpixel) - u_resolution) / u_resolution.x;
     vec3 rayDirection = normalize(paniniRay(uv));
     // vec3 rayDirection = normalize(pinholeRay(uv));
     vec3 subpixel_color = vec3(0.);
+    
+    for (int x = 0; x < int(pixel_samples); ++x) {
+      vec3 pixel_color = vec3(0.);
 
-    for (int x = 0; x < int(lens_samples); ++x) {
-      Ray ray = thinLensRay(rayDirection, sample_incircle(random_0t1_2(uv * t, t * x)));
-      ray.dir = (u_view * vec4(normalize(ray.dir), 0.)).xyz;
-      ray.dir = (u_view * vec4(rayDirection, 0.)).xyz;
-      vec4 ray_pos = u_view * vec4(ray.pos, 1.);
-      ray.pos = ray_pos.xyz / ray_pos.w;
+      for (int x = 0; x < int(lens_samples); ++x) {
+        Ray ray = thinLensRay(rayDirection, sample_incircle(random_0t1_2(uv, x + .1)));
+        vec4 ray_pos = u_view * vec4(ray.pos, 1.);
+        // ray.pos = ray_pos.xyz / ray_pos.w;
+        ray.pos = ray_pos.xyz;
+        ray.dir = normalize(vec3(ray.dir.xy, ray.dir.z * ray_pos.w));
+        ray.dir = (u_view * vec4(ray.dir, 0.)).xyz;
 
-      vec3 color = vec3(0.);
+        vec3 color = vec3(0.);
 
-      for (int x = 0; x < int(light_samples); ++x) {
-        vec2 p = sample_circle(random_0t1(uv * t, t * x));
-        vec3 _light_pos = light_pos + vec3(p.x, 0., p.y);
+        for (int x = 0; x < int(light_samples); ++x) {
+          vec3 refl_color = vec3(0.);
+          for (int x = 0; x < int(reflection_samples); ++x) {
+            Ray rays[19];
+            Hit hitObjs[18];
+            vec3 indirect_color = vec3(0.);
 
-        vec3 refl_color = vec3(0.);
-        for (int x = 0; x < int(reflection_samples); ++x) {
-          Ray rays[10];
-          Hit hitObjs[9];
-          vec3 indirect_color = vec3(0.);
+            // generate ray path
+            bool hit = true;
+            int i = 0;
+            rays[0] = ray;
 
-          // // generate ray path
-          // bool hit = true;
-          // int i = 0;
-          // rays[0] = ray;
+            for (; i < int(gi_reflection_depth) + 2 && hit; ++i) {
+              hit = false;
+              vec3 d = sample_sphere(random_0t1_2(uv, x + .3));
+              float t = scene(rays[i], hit, hitObjs[i]);
+              float cos_angle = -dot(hitObjs[i].normal, rays[i].dir);
+              hitObjs[i].unabsorbed = cos_angle;
+              vec3 pos = rays[i].pos + t * rays[i].dir;
+              vec3 dir;
+              
+              if ((hitObjs[i].type & TYPE_REFLECTIVE) != 0u) {
+                hitObjs[i].unabsorbed = 0.95;
+                dir = normalize(reflect(rays[i].dir, hitObjs[i].normal) + d * hitObjs[i].reflection_fuzz);
+              } else if ((hitObjs[i].type & TYPE_REFRACTIVE) != 0u) {
+                hitObjs[i].unabsorbed = 0.98;
+                int incoming = int(sign(cos_angle));
+                float index = pow(hitObjs[i].refraction_index, -incoming);
+                vec3 normal = incoming * hitObjs[i].normal;
+                vec3 refracted = refract(rays[i].dir, normal, index);
 
-          // for (; i < int(gi_reflection_depth) + 2 && hit; ++i) {
-          //   hit = false;
-          //   float _t = scene(rays[i], hit, hitObjs[i]);
-          //   vec3 d = sample_sphere(random_0t1_2(uv * t, t * x));
-          //   vec3 pos = rays[i].pos + _t * rays[i].dir + min_dist * hitObjs[i].normal;
-          //   if (dot(d, hitObjs[i].normal) < 0.) d = -d;
-          //   rays[i + 1] = Ray(pos, d);
-          // }
+                // if (refracted == vec3(0.) || (index < 1 && reflectance(cos_angle, index) > random_0t1(uv, x + .4)))
+                //   refracted = reflect(rays[i].dir, normal);
+                // if (refracted == vec3(0.) || reflectance(cos_angle, index) > random_0t1(uv, x + .4))
+                //   refracted = reflect(rays[i].dir, normal);
+                if (refracted == vec3(0.))
+                  refracted = reflect(rays[i].dir, normal);
 
-          // // brackpropagate color info
-          // for (int j = i - 1; j >= 1; --j) {
-          //   vec3 light = 
-          //     dot(hitObjs[j - 1].normal, rays[j].dir) * indirect_color +
-          //     light(rays[j].pos, hitObjs[j - 1].normal, _light_pos, light_color) +
-          //     sun(rays[j].pos, hitObjs[j - 1].normal);
-          //   indirect_color = hitObjs[j - 1].color * light;  
-          // }
+                dir = refracted;
+              } else {
+                dir = normalize(d + hitObjs[i].normal);
+              }
+              rays[i + 1] = Ray(pos, dir);
+            }
 
-          // generate ray path
-          bool hit = false;
-          float t = scene(ray, hit, hitObjs[0]);
-          rays[0] = Ray(ray.pos + t * ray.dir + min_dist * hitObjs[0].normal, vec3(0.));
-          int i = 1;
-
-          for (; i < int(gi_reflection_depth) + 1 && hit; ++i) {
-            vec3 d = sample_sphere(random_0t1_2(uv * t, t * x));
-            if (dot(d, hitObjs[i - 1].normal) < 0.) d = -d;
-            rays[i - 1].dir = d;
-            // rays[i - 1].dir = normalize(d + hitObjs[i - 1].normal);
-
-            float t = scene(rays[i - 1], hit, hitObjs[i]);
-            rays[i] = Ray(rays[i - 1].pos + t * d + min_dist * hitObjs[i].normal, vec3(0.));
+            // brackpropagate color through ray path
+            for (int j = i - 1; j >= 1; --j) {
+              float unabsorbed = hitObjs[j - 1].unabsorbed; 
+              vec3 incoming_light = 
+                unabsorbed * indirect_color +
+                light(rays[j].pos, hitObjs[j - 1].normal, random_0t1_2(uv, x + .2)) +
+                sun(rays[j].pos, hitObjs[j - 1].normal);
+              indirect_color = hitObjs[j - 1].color * incoming_light;  
+            }
+            refl_color += indirect_color;
           }
-
-          // brackpropagate color info
-          for (int j = i - 1; j >= 0; --j) {
-            vec3 light = 
-              dot(hitObjs[j].normal, rays[j].dir) * indirect_color +
-              light(rays[j].pos, hitObjs[j].normal, _light_pos, light_color) +
-              sun(rays[j].pos, hitObjs[j].normal);
-            indirect_color = hitObjs[j].color * light;  
-          }
-          refl_color += indirect_color;
+          color += refl_color / reflection_samples;
         }
-
-        color += refl_color / reflection_samples;
+        pixel_color += color / light_samples; 
       }
-      subpixel_color += color / light_samples; 
+      subpixel_color += pixel_color / lens_samples;
     }
-    _frag_color += subpixel_color / lens_samples;
+    _frag_color += subpixel_color / pixel_samples;
   }
   frag_color = vec4(_frag_color / aliasing_samples, 1.);
 }

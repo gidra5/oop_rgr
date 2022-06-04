@@ -32,16 +32,25 @@ gfx_defines! {
         plane_center:               gfx::Global        <  [f32; 3]                 > = "plane_center",
         cylinder_center:            gfx::Global        <  [f32; 3]                 > = "cylinder_center",
         t:                          gfx::Global        <  f32                      > = "t",
+        dt:                         gfx::Global        <  f32                      > = "dt",
         aliasing_samples:           gfx::Global        <  u32                      > = "aliasing_samples",
+        pixel_samples:              gfx::Global        <  u32                      > = "pixel_samples",
         lens_samples:               gfx::Global        <  u32                      > = "lens_samples",
         light_samples:              gfx::Global        <  u32                      > = "light_samples",
         reflection_samples:         gfx::Global        <  u32                      > = "reflection_samples",
         gi_reflection_depth:        gfx::Global        <  u32                      > = "gi_reflection_depth",
         camera_fov_angle:           gfx::Global        <  f32                      > = "cameraFovAngle",
         panini_distance:            gfx::Global        <  f32                      > = "paniniDistance",
-        image_plane_distance:       gfx::Global        <  f32                      > = "imagePlaneDistance",
-        lens_focal_length:          gfx::Global        <  f32                      > = "lensFocalLength",
+        lens_focus_distance:        gfx::Global        <  f32                      > = "lensFocusDistance",
         circle_of_confusion_radius: gfx::Global        <  f32                      > = "circleOfConfusionRadius",
+        min_dist:                   gfx::Global        <  f32                      > = "min_dist",
+        max_dist:                   gfx::Global        <  f32                      > = "max_dist",
+        a:                          gfx::Global        <  u32                      > = "a",
+        b:                          gfx::Global        <  u32                      > = "b",
+        c:                          gfx::Global        <  u32                      > = "c",
+        d:                          gfx::Global        <  u32                      > = "d",
+        e:                          gfx::Global        <  u32                      > = "e",
+        f:                          gfx::Global        <  u32                      > = "f",
         out_color:                  gfx::RenderTarget  <::gfx::format::Srgba8      > = "frag_color",
         // skybox:          gfx::TextureSampler<  [f32; 4]                 > = "skybox",
     }
@@ -58,7 +67,12 @@ widget_ids! {
         slider_light_pos_dy,
 
         text_light_color,
+        text_a,
+        text_dt,
+        text_fps,
+        text_ms,
         text_aliasing_samples,
+        text_pixel_samples,
         text_lens_samples,
         text_light_samples,
         text_reflection_samples,
@@ -68,7 +82,10 @@ widget_ids! {
         text_image_plane_distance,
         text_lens_focal_length,
         text_circle_of_confusion_radius,
+        text_min_dist,
+        text_max_dist,
         slider_aliasing_samples,
+        slider_pixel_samples,
         slider_lens_samples,
         slider_light_samples,
         slider_reflection_samples,
@@ -78,6 +95,8 @@ widget_ids! {
         slider_image_plane_distance,
         slider_lens_focal_length,
         slider_circle_of_confusion_radius,
+        slider_min_dist,
+        slider_max_dist,
         xypad_light_color_hue_brightness,
         slider_light_color_r,
         slider_light_color_g,
@@ -125,16 +144,21 @@ fn main() {
     let mut light_menu = false;
     let mut light_follow = false;
 
-    let opengl = OpenGL::V3_2;
+    // let opengl = Api::opengl(4, 6);
+    let opengl = Api::opengl(4, 5);
 
     // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1280, 720])
-    // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1920, 1080])
+    // let mut window = WindowSettings::new("raytracing", [1920, 1080])
     let mut window: PistonWindow = WindowSettings::new("piston: cube", [2560, 1440])
         .exit_on_esc(true)
         .graphics_api(opengl)
-        // .fullscreen(true)
-        .build()
-        .unwrap();
+        .vsync(false)
+        .fullscreen(true)
+        .build::<PistonWindow>()
+        .unwrap()
+        .lazy(false)
+        .max_fps(480)
+        .ups(480);
 
     let ref mut factory = window.factory.clone();
 
@@ -187,6 +211,8 @@ fn main() {
     };
     let ids = Ids::new(ui.widget_id_generator());
     let image_map = conrod_core::image::Map::new();
+    let mut now = std::time::Instant::now();
+    let mut elapsed_time = now.elapsed();
 
     while let Some(e) = window.next() {
         let right = quaternion::rotate_vector(view_orientation, [1., 0., 0.]);
@@ -237,6 +263,12 @@ fn main() {
                 Key::D => mv[4] = -SPEED,
                 Key::Space => mv[5] = SPEED,
                 Key::LShift => mv[2] = SPEED,
+                Key::Q => data.a = (data.a + 1) % 4,
+                Key::E => data.b = (data.b + 1) % 4,
+                Key::Z => data.c = (data.c + 1) % 4,
+                Key::X => data.d = (data.d + 1) % 5,
+                Key::C => data.e = (data.e + 1) % 4,
+                Key::V => data.f = (data.f + 1) % 2,
                 _ => {}
             },
             _ => {}
@@ -261,11 +293,13 @@ fn main() {
         }
 
         window.draw_3d(&e, |window| {
+            now = std::time::Instant::now();
             window
                 .encoder
                 .draw(&Slice::new_match_vertex_buffer(&data.vbuf), &pso, &data);
             // window.encoder.draw(&slice2, &norm_pso, &data2);
             // window.encoder.draw(&Slice::new_match_vertex_buffer(&data3.vbuf), &pso, &data3);
+            elapsed_time = now.elapsed();
         });
 
         // Convert the src event to a conrod event.
@@ -313,17 +347,60 @@ fn main() {
                     .top_left_with_margin_on(ui.window, MARGIN)
                     .set(ids.background, &mut ui);
 
-                widget::Text::new("Field of View (degrees)")
+                // widget::Text::new(&format!("dt = {}", args.dt))
+                //     .top_left_with_margin_on(ids.background, MARGIN)
+                //     .down(20.)
+                //     .set(ids.text_dt, &mut ui);
+                // widget::Text::new(&format!("fps = {}", 1000. / elapsed_time.as_secs_f64()))
+                //     .top_left_with_margin_on(ids.background, MARGIN)
+                //     .down(20.)
+                //     .set(ids.text_fps, &mut ui);
+                // widget::Text::new(&format!("ms = {}", elapsed_time.as_secs_f64() / 1000.))
+                //     .top_left_with_margin_on(ids.background, MARGIN)
+                //     .down(20.)
+                //     .set(ids.text_ms, &mut ui);
+                widget::Text::new(&format!(
+                    "a = {}, b = {}, c = {}, d = {}, e = {}, f = {}",
+                    data.a, data.b, data.c, data.d, data.e, data.f
+                ))
+                .top_left_with_margin_on(ids.background, MARGIN)
+                .down(20.)
+                .set(ids.text_a, &mut ui);
+                widget::Text::new("Field of View")
                     .mid_top_with_margin_on(ids.background, MARGIN)
                     .down(20.)
                     .set(ids.text_camera_fov_angle, &mut ui);
-                for degrees in widget::Slider::new(data.camera_fov_angle / PI * 180., 1., 180.)
+                for radians in widget::Slider::new(data.camera_fov_angle, 0., PI)
                     .w_h(50., 10.)
                     .x_relative_to(ids.background, 30.)
                     .down(20.)
                     .set(ids.slider_camera_fov_angle, &mut ui)
                 {
-                    data.camera_fov_angle = degrees * PI / 180.;
+                    data.camera_fov_angle = radians;
+                }
+                widget::Text::new("Min Ray Distance")
+                    .mid_top_with_margin_on(ids.background, MARGIN)
+                    .down(20.)
+                    .set(ids.text_min_dist, &mut ui);
+                for dist in widget::Slider::new(-data.min_dist.log(10_f32), -1., 7.)
+                    .w_h(50., 10.)
+                    .x_relative_to(ids.background, 30.)
+                    .down(20.)
+                    .set(ids.slider_min_dist, &mut ui)
+                {
+                    data.min_dist = 10_f32.powf(-dist);
+                }
+                widget::Text::new("Max Ray Distance")
+                    .mid_top_with_margin_on(ids.background, MARGIN)
+                    .down(20.)
+                    .set(ids.text_max_dist, &mut ui);
+                for dist in widget::Slider::new(data.max_dist, 1., 1e+10)
+                    .w_h(50., 10.)
+                    .x_relative_to(ids.background, 30.)
+                    .down(20.)
+                    .set(ids.slider_max_dist, &mut ui)
+                {
+                    data.max_dist = dist;
                 }
 
                 // panini projection props
@@ -341,36 +418,25 @@ fn main() {
                 }
 
                 // lens props
-                widget::Text::new("Image Distance Plane")
+                widget::Text::new("Focus Distance")
                     .mid_top_with_margin_on(ids.background, MARGIN)
                     .down(20.)
                     .set(ids.text_image_plane_distance, &mut ui);
-                for image_plane_distance in widget::Slider::new(data.image_plane_distance, 0., 10.)
-                    .w_h(50., 10.)
-                    .x_relative_to(ids.background, 30.)
-                    .down(20.)
-                    .set(ids.slider_image_plane_distance, &mut ui)
+                for lens_focus_distance in
+                    widget::Slider::new(data.lens_focus_distance, data.min_dist, 25.)
+                        .w_h(50., 10.)
+                        .x_relative_to(ids.background, 30.)
+                        .down(20.)
+                        .set(ids.slider_image_plane_distance, &mut ui)
                 {
-                    data.image_plane_distance = image_plane_distance;
-                }
-                widget::Text::new("Focal Length")
-                    .mid_top_with_margin_on(ids.background, MARGIN)
-                    .down(20.)
-                    .set(ids.text_lens_focal_length, &mut ui);
-                for lens_focal_length in widget::Slider::new(data.lens_focal_length, 0., 10.)
-                    .w_h(50., 10.)
-                    .x_relative_to(ids.background, 30.)
-                    .down(20.)
-                    .set(ids.slider_lens_focal_length, &mut ui)
-                {
-                    data.lens_focal_length = lens_focal_length;
+                    data.lens_focus_distance = lens_focus_distance;
                 }
                 widget::Text::new("Circle Of Confusion")
                     .mid_top_with_margin_on(ids.background, MARGIN)
                     .down(20.)
                     .set(ids.text_circle_of_confusion_radius, &mut ui);
                 for circle_of_confusion_radius in
-                    widget::Slider::new(data.circle_of_confusion_radius, 0., 1.)
+                    widget::Slider::new(data.circle_of_confusion_radius, 0., 0.2)
                         .w_h(50., 10.)
                         .x_relative_to(ids.background, 30.)
                         .down(20.)
@@ -390,6 +456,19 @@ fn main() {
                     .set(ids.slider_aliasing_samples, &mut ui)
                 {
                     data.aliasing_samples = samples as u32;
+                }
+
+                widget::Text::new("Pixel Samples")
+                    .mid_top_with_margin_on(ids.background, MARGIN)
+                    .down(20.)
+                    .set(ids.text_pixel_samples, &mut ui);
+                for samples in widget::NumberDialer::new(data.pixel_samples as f32, 1., 256., 1)
+                    .w_h(50., 10.)
+                    .x_relative_to(ids.background, 30.)
+                    .down(20.)
+                    .set(ids.slider_pixel_samples, &mut ui)
+                {
+                    data.pixel_samples = samples as u32;
                 }
                 widget::Text::new("Lens Samples")
                     .mid_top_with_margin_on(ids.background, MARGIN)
@@ -432,11 +511,12 @@ fn main() {
                     .mid_top_with_margin_on(ids.background, MARGIN)
                     .down(20.)
                     .set(ids.text_gi_reflection_depth, &mut ui);
-                for samples in widget::NumberDialer::new(data.gi_reflection_depth as f32, 0., 8., 1)
-                    .w_h(50., 10.)
-                    .x_relative_to(ids.background, 30.)
-                    .down(20.)
-                    .set(ids.slider_gi_reflection_depth, &mut ui)
+                for samples in
+                    widget::NumberDialer::new(data.gi_reflection_depth as f32, 0., 16., 1)
+                        .w_h(40., 24.)
+                        .x_relative_to(ids.background, 30.)
+                        .down(20.)
+                        .set(ids.slider_gi_reflection_depth, &mut ui)
                 {
                     data.gi_reflection_depth = samples as u32;
                 }
@@ -744,8 +824,8 @@ fn setup(
         ],
         u_res: [width as f32, height as f32],
 
-        light_pos: [2., 0., 1.],
-        light_color: [0xfc as f32 / 255., 0x0f as f32 / 255., 0xc0 as f32 / 255.],
+        light_pos: [2., 5., 1.],
+        light_color: [0xff as f32 / 255., 0xff as f32 / 255., 0xff as f32 / 255.],
         sphere_center: [-1., 0., 0.],
         plane_center: [0., -1., 0.],
         cylinder_center: [1., 0., 4.],
@@ -759,12 +839,21 @@ fn setup(
         //     )),
         // ),
         t: 0. as f32,
+        dt: 0. as f32,
+        a: 0,
+        b: 0,
+        c: 0,
+        d: 0,
+        e: 0,
+        f: 0,
+        min_dist: 1e-5,
+        max_dist: 100000.,
         camera_fov_angle: PI * 0.67,
         panini_distance: 1.0 as f32,
-        image_plane_distance: 1. as f32,
-        lens_focal_length: 0.1 as f32,
+        lens_focus_distance: 4. as f32,
         circle_of_confusion_radius: 0.0 as f32,
         aliasing_samples: 1,
+        pixel_samples: 1,
         lens_samples: 1,
         light_samples: 1,
         reflection_samples: 1,
