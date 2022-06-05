@@ -8,6 +8,7 @@
 const uint TYPE_DIFFUSE = 0x00000000u;
 const uint TYPE_REFLECTIVE = 0x00000001u;
 const uint TYPE_REFRACTIVE = 0x00000002u;
+const uint TYPE_SUBSUFRACE = 0x00000004u;
 
 uniform mat4 u_proj;
 uniform mat4 u_view;
@@ -1033,6 +1034,15 @@ float scene(in Ray ray, out bool hit, out Hit hitObj) {
   float d = max_dist;
   float d2;
 
+
+  d2 = iTorus(ray.pos - plane_center - vec3(-1., 5., -1.), ray.dir, vec2(min_dist, d), hitObj.normal, vec2(1., 0.5));
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_SUBSUFRACE;
+  }
+  d = min(d, d2);
+
   d2 = iPlane(ray.pos - plane_center, ray.dir, vec2(min_dist, d), hitObj.normal, vec3(0., 1., 0.), 0.);
   hit = hit || d2 < d;
   if (d2 < d) {
@@ -1409,6 +1419,24 @@ void main() {
                 // if (dir == vec3(0.))
                 //   dir = reflect(rays[i].dir, normal);
 
+                pos = pos + min_dist * dir;
+              } else if ((hitObjs[i].type & TYPE_SUBSUFRACE) != 0u) {
+                if (cos_angle > 0.) {
+                  float scatter_distance = pow(10., int(a) - 1);
+                  float scatter_t = -log(random_0t1(uv, x+.6)) * scatter_distance;
+                  if (scatter_t < t && i < int(gi_reflection_depth)) {
+                    t = scatter_t;
+                    dir = normalize(d + rays[i].dir);
+                    pos = rays[i].pos + t * rays[i].dir;
+                    hitObjs[i].unabsorbed = exp(-t / scatter_distance);
+                  } else {
+                    hitObjs[i].unabsorbed = 1.;
+                    dir = normalize(d + hitObjs[i].normal);
+                  }
+                } else {
+                  hitObjs[i].unabsorbed = 0.98;
+                  dir = normalize(d - hitObjs[i].normal);
+                }
                 pos = pos + min_dist * dir;
               } else {
                 dir = normalize(d + hitObjs[i].normal);
