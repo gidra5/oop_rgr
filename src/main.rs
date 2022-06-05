@@ -394,7 +394,7 @@ fn main() {
                     .mid_top_with_margin_on(ids.background, MARGIN)
                     .down(20.)
                     .set(ids.text_max_dist, &mut ui);
-                for dist in widget::Slider::new(data.max_dist, 1., 1e+10)
+                for dist in widget::Slider::new(data.max_dist, 100., 1e+10)
                     .w_h(50., 10.)
                     .x_relative_to(ids.background, 30.)
                     .down(20.)
@@ -846,8 +846,8 @@ fn setup(
         d: 0,
         e: 0,
         f: 0,
-        min_dist: 1e-5,
-        max_dist: 100000.,
+        min_dist: 1e-3,
+        max_dist: 1e+5,
         camera_fov_angle: PI * 0.67,
         panini_distance: 1.0 as f32,
         lens_focus_distance: 4. as f32,

@@ -1108,6 +1108,70 @@ float scene(in Ray ray, out bool hit, out Hit hitObj) {
     hitObj.refraction_index = 2.01;
   }
   d = min(d, d2);
+  d2 = iSphere(ray.pos - sphere_center - vec3(6.5, -.5, 2.5), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFRACTIVE;
+    hitObj.refraction_index = 1.0;
+  }
+  d = min(d, d2);
+  d2 = iSphere(ray.pos - sphere_center - vec3(5.5, -.5, 2.5), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFRACTIVE;
+    hitObj.refraction_index = .99;
+  }
+  d = min(d, d2);
+  d2 = iSphere(ray.pos - sphere_center - vec3(4.5, -.5, 2.5), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFRACTIVE;
+    hitObj.refraction_index = .9;
+  }
+  d = min(d, d2);
+  d2 = iSphere(ray.pos - sphere_center - vec3(3.5, -.5, 2.5), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFRACTIVE;
+    hitObj.refraction_index = .75;
+  }
+  d = min(d, d2);
+  d2 = iSphere(ray.pos - sphere_center - vec3(6.5, -.5, 3.5), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFRACTIVE;
+    hitObj.refraction_index = -1.0;
+  }
+  d = min(d, d2);
+  d2 = iSphere(ray.pos - sphere_center - vec3(5.5, -.5, 3.5), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFRACTIVE;
+    hitObj.refraction_index = -2.;
+  }
+  d = min(d, d2);
+  d2 = iSphere(ray.pos - sphere_center - vec3(4.5, -.5, 3.5), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFRACTIVE;
+    hitObj.refraction_index = -.5;
+  }
+  d = min(d, d2);
+  d2 = iSphere(ray.pos - sphere_center - vec3(3.5, -.5, 3.5), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
+  hit = hit || d2 < d;
+  if (d2 < d) {
+    hitObj.color = vec3(1., 1., 1.);
+    hitObj.type = TYPE_REFRACTIVE;
+    hitObj.refraction_index = -.1;
+  }
+  d = min(d, d2);
   d2 = iSphere(ray.pos - sphere_center - vec3(2.5, -.5, 2.5), ray.dir, vec2(min_dist, d), hitObj.normal, 0.5);
   hit = hit || d2 < d;
   if (d2 < d) {
@@ -1268,6 +1332,15 @@ float reflectance(float cos_angle, float refraction_index) {
   return r0 + (1 - r0) * pow((1 - cos_angle), 5);
 }
 
+float _reflectance(float cos_i, float cos_t, float index) {
+  float s = (index * cos_i - cos_t) / (index * cos_i + cos_t);
+  float p = (index * cos_t - cos_i) / (index * cos_t + cos_i);
+  vec2 sp = vec2(s, p);
+
+  return 0.5 * dot(sp, sp);
+}
+
+
 
 
 
@@ -1317,21 +1390,26 @@ void main() {
               if ((hitObjs[i].type & TYPE_REFLECTIVE) != 0u) {
                 hitObjs[i].unabsorbed = 0.95;
                 dir = normalize(reflect(rays[i].dir, hitObjs[i].normal) + d * hitObjs[i].reflection_fuzz);
+                pos = pos + min_dist * dir;
               } else if ((hitObjs[i].type & TYPE_REFRACTIVE) != 0u) {
                 hitObjs[i].unabsorbed = 0.98;
                 int incoming = int(sign(cos_angle));
-                float index = pow(hitObjs[i].refraction_index, -incoming);
+                float index = incoming > 0. ? 1. / hitObjs[i].refraction_index : hitObjs[i].refraction_index;
                 vec3 normal = incoming * hitObjs[i].normal;
-                vec3 refracted = refract(rays[i].dir, normal, index);
+                dir = refract(rays[i].dir, normal, index);
 
-                // if (refracted == vec3(0.) || (index < 1 && reflectance(cos_angle, index) > random_0t1(uv, x + .4)))
-                //   refracted = reflect(rays[i].dir, normal);
-                // if (refracted == vec3(0.) || reflectance(cos_angle, index) > random_0t1(uv, x + .4))
-                //   refracted = reflect(rays[i].dir, normal);
-                if (refracted == vec3(0.))
-                  refracted = reflect(rays[i].dir, normal);
+                // if (dir == vec3(0.) || (index < 1 && reflectance(cos_angle, index) > random_0t1(uv, x + .4)))
+                //   dir = reflect(rays[i].dir, normal);
+                // if (dir == vec3(0.) || reflectance(cos_angle, index) > random_0t1(uv, x + .4))
+                //   dir = reflect(rays[i].dir, normal);
+                // if (dir == vec3(0.) || _reflectance(cos_angle, -dot(dir, normal), index) > random_0t1(uv, x + .4))
+                //   dir = reflect(rays[i].dir, normal);
+                if (dir == vec3(0.) || (abs(hitObjs[i].refraction_index) > 1. && abs(index) < 1 && _reflectance(cos_angle, -dot(dir, normal), index) > random_0t1(uv, x + .4)))
+                  dir = reflect(rays[i].dir, normal);
+                // if (dir == vec3(0.))
+                //   dir = reflect(rays[i].dir, normal);
 
-                dir = refracted;
+                pos = pos + min_dist * dir;
               } else {
                 dir = normalize(d + hitObjs[i].normal);
               }
