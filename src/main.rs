@@ -263,12 +263,12 @@ fn main() {
                 Key::D => mv[4] = -SPEED,
                 Key::Space => mv[5] = SPEED,
                 Key::LShift => mv[2] = SPEED,
-                Key::Q => data.a = (data.a + 1) % 4,
-                Key::E => data.b = (data.b + 1) % 4,
-                Key::Z => data.c = (data.c + 1) % 4,
-                Key::X => data.d = (data.d + 1) % 5,
-                Key::C => data.e = (data.e + 1) % 4,
-                Key::V => data.f = (data.f + 1) % 2,
+                Key::Q => data.a = data.a + 1,
+                Key::E => data.b = data.b + 1,
+                Key::Z => data.c = data.c + 1,
+                Key::X => data.d = data.d + 1,
+                Key::C => data.e = data.e + 1,
+                Key::V => data.f = data.f + 1,
                 _ => {}
             },
             _ => {}
