@@ -34,15 +34,14 @@ gfx_defines! {
         t:                          gfx::Global        <  f32                      > = "t",
         dt:                         gfx::Global        <  f32                      > = "dt",
         aliasing_samples:           gfx::Global        <  u32                      > = "aliasing_samples",
-        pixel_samples:              gfx::Global        <  u32                      > = "pixel_samples",
         lens_samples:               gfx::Global        <  u32                      > = "lens_samples",
-        light_samples:              gfx::Global        <  u32                      > = "light_samples",
         reflection_samples:         gfx::Global        <  u32                      > = "reflection_samples",
         gi_reflection_depth:        gfx::Global        <  u32                      > = "gi_reflection_depth",
         camera_fov_angle:           gfx::Global        <  f32                      > = "cameraFovAngle",
         panini_distance:            gfx::Global        <  f32                      > = "paniniDistance",
         lens_focus_distance:        gfx::Global        <  f32                      > = "lensFocusDistance",
         circle_of_confusion_radius: gfx::Global        <  f32                      > = "circleOfConfusionRadius",
+        exposure:                   gfx::Global        <  f32                      > = "exposure",
         min_dist:                   gfx::Global        <  f32                      > = "min_dist",
         max_dist:                   gfx::Global        <  f32                      > = "max_dist",
         a:                          gfx::Global        <  u32                      > = "a",
@@ -72,9 +71,7 @@ widget_ids! {
         text_fps,
         text_ms,
         text_aliasing_samples,
-        text_pixel_samples,
         text_lens_samples,
-        text_light_samples,
         text_reflection_samples,
         text_gi_reflection_depth,
         text_camera_fov_angle,
@@ -82,12 +79,11 @@ widget_ids! {
         text_image_plane_distance,
         text_lens_focal_length,
         text_circle_of_confusion_radius,
+        text_exposure,
         text_min_dist,
         text_max_dist,
         slider_aliasing_samples,
-        slider_pixel_samples,
         slider_lens_samples,
-        slider_light_samples,
         slider_reflection_samples,
         slider_gi_reflection_depth,
         slider_camera_fov_angle,
@@ -95,6 +91,7 @@ widget_ids! {
         slider_image_plane_distance,
         slider_lens_focal_length,
         slider_circle_of_confusion_radius,
+        slider_exposure,
         slider_min_dist,
         slider_max_dist,
         xypad_light_color_hue_brightness,
@@ -444,6 +441,18 @@ fn main() {
                 {
                     data.circle_of_confusion_radius = circle_of_confusion_radius;
                 }
+                widget::Text::new("Exposure")
+                    .mid_top_with_margin_on(ids.background, MARGIN)
+                    .down(20.)
+                    .set(ids.text_exposure, &mut ui);
+                for exposure in widget::Slider::new(data.exposure.powf(0.2), 0., 1.)
+                    .w_h(50., 10.)
+                    .x_relative_to(ids.background, 30.)
+                    .down(20.)
+                    .set(ids.slider_exposure, &mut ui)
+                {
+                    data.exposure = exposure.powf(5.);
+                }
 
                 widget::Text::new("Subpixel Samples")
                     .mid_top_with_margin_on(ids.background, MARGIN)
@@ -457,19 +466,6 @@ fn main() {
                 {
                     data.aliasing_samples = samples as u32;
                 }
-
-                widget::Text::new("Pixel Samples")
-                    .mid_top_with_margin_on(ids.background, MARGIN)
-                    .down(20.)
-                    .set(ids.text_pixel_samples, &mut ui);
-                for samples in widget::NumberDialer::new(data.pixel_samples as f32, 1., 256., 1)
-                    .w_h(50., 10.)
-                    .x_relative_to(ids.background, 30.)
-                    .down(20.)
-                    .set(ids.slider_pixel_samples, &mut ui)
-                {
-                    data.pixel_samples = samples as u32;
-                }
                 widget::Text::new("Lens Samples")
                     .mid_top_with_margin_on(ids.background, MARGIN)
                     .down(20.)
@@ -481,18 +477,6 @@ fn main() {
                     .set(ids.slider_lens_samples, &mut ui)
                 {
                     data.lens_samples = samples as u32;
-                }
-                widget::Text::new("Light Source Samples")
-                    .mid_top_with_margin_on(ids.background, MARGIN)
-                    .down(20.)
-                    .set(ids.text_light_samples, &mut ui);
-                for samples in widget::NumberDialer::new(data.light_samples as f32, 1., 256., 1)
-                    .w_h(50., 10.)
-                    .x_relative_to(ids.background, 30.)
-                    .down(20.)
-                    .set(ids.slider_light_samples, &mut ui)
-                {
-                    data.light_samples = samples as u32;
                 }
                 widget::Text::new("Reflection Samples")
                     .mid_top_with_margin_on(ids.background, MARGIN)
@@ -824,7 +808,7 @@ fn setup(
         ],
         u_res: [width as f32, height as f32],
 
-        light_pos: [2., 5., 1.],
+        light_pos: [2., 6.89, 1.],
         light_color: [0xff as f32 / 255., 0xff as f32 / 255., 0xff as f32 / 255.],
         sphere_center: [-1., 0., 0.],
         plane_center: [0., -1., 0.],
@@ -853,11 +837,10 @@ fn setup(
         lens_focus_distance: 4. as f32,
         circle_of_confusion_radius: 0.0 as f32,
         aliasing_samples: 1,
-        pixel_samples: 1,
         lens_samples: 1,
-        light_samples: 1,
         reflection_samples: 1,
-        gi_reflection_depth: 1,
+        gi_reflection_depth: 3,
+        exposure: 1.,
     };
 
     data
