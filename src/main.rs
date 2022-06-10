@@ -33,15 +33,14 @@ gfx_defines! {
         cylinder_center:            gfx::Global        <  [f32; 3]                 > = "cylinder_center",
         t:                          gfx::Global        <  f32                      > = "t",
         dt:                         gfx::Global        <  f32                      > = "dt",
-        aliasing_samples:           gfx::Global        <  u32                      > = "aliasing_samples",
-        lens_samples:               gfx::Global        <  u32                      > = "lens_samples",
-        reflection_samples:         gfx::Global        <  u32                      > = "reflection_samples",
+        samples:                    gfx::Global        <  u32                      > = "samples",
         gi_reflection_depth:        gfx::Global        <  u32                      > = "gi_reflection_depth",
         camera_fov_angle:           gfx::Global        <  f32                      > = "cameraFovAngle",
         panini_distance:            gfx::Global        <  f32                      > = "paniniDistance",
         lens_focus_distance:        gfx::Global        <  f32                      > = "lensFocusDistance",
         circle_of_confusion_radius: gfx::Global        <  f32                      > = "circleOfConfusionRadius",
         exposure:                   gfx::Global        <  f32                      > = "exposure",
+        ambience:                   gfx::Global        <  f32                      > = "ambience",
         min_dist:                   gfx::Global        <  f32                      > = "min_dist",
         max_dist:                   gfx::Global        <  f32                      > = "max_dist",
         a:                          gfx::Global        <  u32                      > = "a",
@@ -453,43 +452,29 @@ fn main() {
                 {
                     data.exposure = exposure.powf(5.);
                 }
-
-                widget::Text::new("Subpixel Samples")
+                widget::Text::new("Ambience")
                     .mid_top_with_margin_on(ids.background, MARGIN)
                     .down(20.)
                     .set(ids.text_aliasing_samples, &mut ui);
-                for samples in widget::NumberDialer::new(data.aliasing_samples as f32, 1., 256., 1)
+                for ambience in widget::Slider::new(data.ambience, 0., 1.)
                     .w_h(50., 10.)
                     .x_relative_to(ids.background, 30.)
                     .down(20.)
                     .set(ids.slider_aliasing_samples, &mut ui)
                 {
-                    data.aliasing_samples = samples as u32;
+                    data.ambience = ambience;
                 }
-                widget::Text::new("Lens Samples")
-                    .mid_top_with_margin_on(ids.background, MARGIN)
-                    .down(20.)
-                    .set(ids.text_lens_samples, &mut ui);
-                for samples in widget::NumberDialer::new(data.lens_samples as f32, 1., 256., 1)
-                    .w_h(50., 10.)
-                    .x_relative_to(ids.background, 30.)
-                    .down(20.)
-                    .set(ids.slider_lens_samples, &mut ui)
-                {
-                    data.lens_samples = samples as u32;
-                }
-                widget::Text::new("Reflection Samples")
+                widget::Text::new("Samples")
                     .mid_top_with_margin_on(ids.background, MARGIN)
                     .down(20.)
                     .set(ids.text_reflection_samples, &mut ui);
-                for samples in
-                    widget::NumberDialer::new(data.reflection_samples as f32, 1., 256., 1)
-                        .w_h(50., 10.)
-                        .x_relative_to(ids.background, 30.)
-                        .down(20.)
-                        .set(ids.slider_reflection_samples, &mut ui)
+                for samples in widget::NumberDialer::new(data.samples as f32, 1., 1024., 1)
+                    .w_h(50., 10.)
+                    .x_relative_to(ids.background, 30.)
+                    .down(20.)
+                    .set(ids.slider_reflection_samples, &mut ui)
                 {
-                    data.reflection_samples = samples as u32;
+                    data.samples = samples as u32;
                 }
                 widget::Text::new("Reflection Depth")
                     .mid_top_with_margin_on(ids.background, MARGIN)
@@ -836,11 +821,10 @@ fn setup(
         panini_distance: 1.0 as f32,
         lens_focus_distance: 4. as f32,
         circle_of_confusion_radius: 0.0 as f32,
-        aliasing_samples: 1,
-        lens_samples: 1,
-        reflection_samples: 1,
+        samples: 1,
         gi_reflection_depth: 3,
         exposure: 1.,
+        ambience: 0.,
     };
 
     data
