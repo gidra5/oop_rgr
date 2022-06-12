@@ -10,10 +10,8 @@ const float E       = 2.71828182845904523536028;
 const float TWO_PI  = 6.28318530717958647692528;
 const float INV_PI  = 1 / PI;
 const uint TYPE_DIFFUSE = 0x00000000u;
-const uint TYPE_REFLECTIVE = 0x00000001u;
 const uint TYPE_REFRACTIVE = 0x00000002u;
 const uint TYPE_SUBSUFRACE = 0x00000004u;
-const uint TYPE_EMMISIVE = 0x00000008u;
 
 uniform mat4 u_proj;
 uniform mat4 u_view;
@@ -66,11 +64,16 @@ struct Light {
 
 struct Material {
   vec3 color;
+  vec3 emission;
   uint type;
 
-  float percentSpecular;
+  float specularChance;
   float roughness;
   vec3 specularColor;
+
+  float refraction_chance;    // percent chance of doing a refractive transmission
+  float refraction_roughness; // how rough the refractive transmissions are
+  vec3  refraction_color;     // absorption for beer's law  
 
   // TYPE_REFLECTIVE
   float reflection_fuzz;
@@ -997,10 +1000,23 @@ vec3 dist_scene_gradient(vec3 p) {
 //   return p;
 // }
 
+void resetMaterial(out Material m) {
+  m.roughness = 0.;
+  m.color = vec3(1.);
+  m.emission = vec3(0.);
+  m.specularChance = 0.0;
+  m.specularColor = vec3(0.);
+  m.refraction_index = 1.0;
+  m.refraction_chance = 0.;
+  m.refraction_color = vec3(0.0);
+  m.refraction_roughness = 0.0;
+}
+
 Hit scene(in Ray ray) {
   Hit hitObj;
   hitObj.dist = max_dist;
   float d2;
+  resetMaterial(hitObj.material);
 
   // d2 = iTorus(ray.pos - plane_center - vec3(-1., 5., -1.), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, vec2(1., 0.5));
   // hitObj.hit = hitObj.hit || d2 < hitObj.dist;
@@ -1011,212 +1027,187 @@ Hit scene(in Ray ray) {
   // hitObj.dist = min(hitObj.dist, d2);
 
   d2 = iPlane(ray.pos - plane_center, ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, vec3(0., 1., 0.), 0.);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
   if (d2 < hitObj.dist) {
+    hitObj.hit = true;
+    hitObj.dist = d2;
+    resetMaterial(hitObj.material);
+
     hitObj.material.color = vec3(1., 1., 1.);
     hitObj.material.type = TYPE_DIFFUSE;
   }
-  hitObj.dist = min(hitObj.dist, d2);
 
   d2 = iSphere(ray.pos - sphere_center, ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 1.);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
   if (d2 < hitObj.dist) {
+    hitObj.hit = true;
+    hitObj.dist = d2;
+    resetMaterial(hitObj.material);
+
     hitObj.material.color = vec3(0., 1., 0.);
-    hitObj.material.type = TYPE_REFLECTIVE;
-    hitObj.material.reflection_fuzz = 0.04;
+    hitObj.material.specularColor = hitObj.material.color;
+    hitObj.material.type = TYPE_DIFFUSE;
+    hitObj.material.roughness = 0.05;
+    hitObj.material.specularChance = 1.;
   }
-  hitObj.dist = min(hitObj.dist, d2);
 
   d2 = iSphere(ray.pos - sphere_center - vec3(0., 0., -2.), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 1.);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
   if (d2 < hitObj.dist) {
+    hitObj.hit = true;
+    hitObj.dist = d2;
+    resetMaterial(hitObj.material);
+
     hitObj.material.color = vec3(0., 0.5, 0.5);
     hitObj.material.type = TYPE_DIFFUSE;
   }
-  hitObj.dist = min(hitObj.dist, d2);
 
-  // d2 = iCylinder(ray.pos - sphere_center, ray.dir, vec2(0., hitObj.dist), hitObj.normal, vec3(0., 1., 1.), vec3(0., 2., 2.), 1.);
   d2 = iSphere(ray.pos - sphere_center - vec3(1., 2., 0.), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
   if (d2 < hitObj.dist) {
+    hitObj.hit = true;
+    hitObj.dist = d2;
+    resetMaterial(hitObj.material);
+
     hitObj.material.color = vec3(1., 1., 1.);
     hitObj.material.type = TYPE_REFRACTIVE;
     hitObj.material.refraction_index = 1.5;
   }
-  hitObj.dist = min(hitObj.dist, d2);
 
-  d2 = iSphere(ray.pos - sphere_center - vec3(1.5, -.5, 1.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
-  if (d2 < hitObj.dist) {
-    hitObj.material.color = vec3(1., 1., 1.);
-    hitObj.material.type = TYPE_REFRACTIVE;
-    hitObj.material.refraction_index = 1.01;
+  for (int i = 0; i < 10; ++i) {
+    d2 = iSphere(ray.pos - sphere_center - vec3(1.5 + i, -.5, 1.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
+    if (d2 < hitObj.dist) {
+      hitObj.hit = true;
+      hitObj.dist = d2;
+      resetMaterial(hitObj.material);
+
+      // hitObj.material.color = vec3(0.9f, 0.25f, 0.25f);
+      hitObj.material.color = vec3(1.);
+      hitObj.material.specularChance = 0.02f;
+      hitObj.material.roughness = 0.;
+      hitObj.material.specularColor = vec3(1.0f, 1.0f, 1.0f) * 0.8f;
+      hitObj.material.refraction_chance = 1.0f;
+      hitObj.material.refraction_roughness = 0.0f;
+
+      hitObj.material.type = TYPE_REFRACTIVE;
+      hitObj.material.refraction_index = 1. + log(1 + exp(2. * (i - 3))) * 0.5;
+    }
+
+    d2 = iSphere(ray.pos - sphere_center - vec3(1.5 + i, -.5, 2.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
+    if (d2 < hitObj.dist) {
+      hitObj.hit = true;
+      hitObj.dist = d2;
+      resetMaterial(hitObj.material);
+
+      // hitObj.material.color = vec3(0.9f, 0.25f, 0.25f);
+      hitObj.material.color = vec3(1.);
+      hitObj.material.specularChance = 0.02f;
+      hitObj.material.roughness = 0.;
+      hitObj.material.specularColor = vec3(1.0f, 1.0f, 1.0f) * 0.8f;
+      hitObj.material.refraction_chance = 1.0f;
+      hitObj.material.refraction_roughness = 0.0f; 
+
+      hitObj.material.type = TYPE_REFRACTIVE;
+      hitObj.material.refraction_index = exp(-i * 0.6) / (1 + exp(-i * 0.6));
+    }
+    d2 = iSphere(ray.pos - sphere_center - vec3(1.5 + i, -.5, 3.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
+
+    if (d2 < hitObj.dist) {
+      hitObj.hit = true;
+      hitObj.dist = d2;
+      resetMaterial(hitObj.material);
+
+      // hitObj.material.color = vec3(0.9f, 0.25f, 0.25f);
+      hitObj.material.color = vec3(1.);
+      hitObj.material.specularChance = 0.02f;
+      hitObj.material.roughness = 0.;
+      hitObj.material.specularColor = vec3(1.0f, 1.0f, 1.0f) * 0.8f;
+      hitObj.material.refraction_chance = 1.0f;
+      hitObj.material.refraction_roughness = 0.0f;
+      
+      hitObj.material.type = TYPE_REFRACTIVE;
+      hitObj.material.refraction_index = -log(1 + exp(2. * (i - 3))) * 0.5;
+    }
   }
-  hitObj.dist = min(hitObj.dist, d2);
-  d2 = iSphere(ray.pos - sphere_center - vec3(2.5, -.5, 1.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
-  if (d2 < hitObj.dist) {
-    hitObj.material.color = vec3(1., 1., 1.);
-    hitObj.material.type = TYPE_REFRACTIVE;
-    hitObj.material.refraction_index = 1.11;
+
+  for (int i = 0; i <= 6; ++i) {
+    for (int j = 0; j <= 6; ++j) {
+      d2 = iSphere(ray.pos - sphere_center - vec3(2.5 + j, -.5, -1.5 - i), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
+      if (d2 < hitObj.dist) {
+        hitObj.hit = true;
+        hitObj.dist = d2;
+        resetMaterial(hitObj.material);
+
+        hitObj.material.color = vec3(1., 1., 1.);
+        hitObj.material.type = TYPE_DIFFUSE;
+        hitObj.material.roughness = i / 6.;
+        hitObj.material.specularChance = j / 6.;
+        hitObj.material.specularColor = vec3(0.8, 0.2, 0.8);
+      }
+    }
   }
-  hitObj.dist = min(hitObj.dist, d2);
-  d2 = iSphere(ray.pos - sphere_center - vec3(3.5, -.5, 1.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
-  if (d2 < hitObj.dist) {
-    hitObj.material.color = vec3(1., 1., 1.);
-    hitObj.material.type = TYPE_REFRACTIVE;
-    hitObj.material.refraction_index = 1.11;
-  }
-  hitObj.dist = min(hitObj.dist, d2);
-  d2 = iSphere(ray.pos - sphere_center - vec3(4.5, -.5, 1.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
-  if (d2 < hitObj.dist) {
-    hitObj.material.color = vec3(1., 1., 1.);
-    hitObj.material.type = TYPE_REFRACTIVE;
-    hitObj.material.refraction_index = 1.31;
-  }
-  hitObj.dist = min(hitObj.dist, d2);
-  d2 = iSphere(ray.pos - sphere_center - vec3(5.5, -.5, 1.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
-  if (d2 < hitObj.dist) {
-    hitObj.material.color = vec3(1., 1., 1.);
-    hitObj.material.type = TYPE_REFRACTIVE;
-    hitObj.material.refraction_index = 1.61;
-  }
-  hitObj.dist = min(hitObj.dist, d2);
-  d2 = iSphere(ray.pos - sphere_center - vec3(6.5, -.5, 1.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
-  if (d2 < hitObj.dist) {
-    hitObj.material.color = vec3(1., 1., 1.);
-    hitObj.material.type = TYPE_REFRACTIVE;
-    hitObj.material.refraction_index = 2.01;
-  }
-  hitObj.dist = min(hitObj.dist, d2);
-  d2 = iSphere(ray.pos - sphere_center - vec3(6.5, -.5, 2.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
-  if (d2 < hitObj.dist) {
-    hitObj.material.color = vec3(1., 1., 1.);
-    hitObj.material.type = TYPE_REFRACTIVE;
-    hitObj.material.refraction_index = 1.0;
-  }
-  hitObj.dist = min(hitObj.dist, d2);
-  d2 = iSphere(ray.pos - sphere_center - vec3(5.5, -.5, 2.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
-  if (d2 < hitObj.dist) {
-    hitObj.material.color = vec3(1., 1., 1.);
-    hitObj.material.type = TYPE_REFRACTIVE;
-    hitObj.material.refraction_index = .99;
-  }
-  hitObj.dist = min(hitObj.dist, d2);
-  d2 = iSphere(ray.pos - sphere_center - vec3(4.5, -.5, 2.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
-  if (d2 < hitObj.dist) {
-    hitObj.material.color = vec3(1., 1., 1.);
-    hitObj.material.type = TYPE_REFRACTIVE;
-    hitObj.material.refraction_index = .9;
-  }
-  hitObj.dist = min(hitObj.dist, d2);
-  d2 = iSphere(ray.pos - sphere_center - vec3(3.5, -.5, 2.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
-  if (d2 < hitObj.dist) {
-    hitObj.material.color = vec3(1., 1., 1.);
-    hitObj.material.type = TYPE_REFRACTIVE;
-    hitObj.material.refraction_index = .75;
-  }
-  hitObj.dist = min(hitObj.dist, d2);
-  d2 = iSphere(ray.pos - sphere_center - vec3(6.5, -.5, 3.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
-  if (d2 < hitObj.dist) {
-    hitObj.material.color = vec3(1., 1., 1.);
-    hitObj.material.type = TYPE_REFRACTIVE;
-    hitObj.material.refraction_index = -1.0;
-  }
-  hitObj.dist = min(hitObj.dist, d2);
-  d2 = iSphere(ray.pos - sphere_center - vec3(5.5, -.5, 3.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
-  if (d2 < hitObj.dist) {
-    hitObj.material.color = vec3(1., 1., 1.);
-    hitObj.material.type = TYPE_REFRACTIVE;
-    hitObj.material.refraction_index = -2.;
-  }
-  hitObj.dist = min(hitObj.dist, d2);
-  d2 = iSphere(ray.pos - sphere_center - vec3(4.5, -.5, 3.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
-  if (d2 < hitObj.dist) {
-    hitObj.material.color = vec3(1., 1., 1.);
-    hitObj.material.type = TYPE_REFRACTIVE;
-    hitObj.material.refraction_index = -.5;
-  }
-  hitObj.dist = min(hitObj.dist, d2);
-  d2 = iSphere(ray.pos - sphere_center - vec3(3.5, -.5, 3.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
-  if (d2 < hitObj.dist) {
-    hitObj.material.color = vec3(1., 1., 1.);
-    hitObj.material.type = TYPE_REFRACTIVE;
-    hitObj.material.refraction_index = -.1;
-  }
-  hitObj.dist = min(hitObj.dist, d2);
-  d2 = iSphere(ray.pos - sphere_center - vec3(2.5, -.5, 2.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
-  if (d2 < hitObj.dist) {
-    hitObj.material.color = vec3(1., 1., 1.);
-    hitObj.material.type = TYPE_REFRACTIVE;
-    hitObj.material.refraction_index = 5.01;
-  }
-  hitObj.dist = min(hitObj.dist, d2);
+
   d2 = iSphere(ray.pos - sphere_center - vec3(0., 0., 2.), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 1.);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
   if (d2 < hitObj.dist) {
+    hitObj.hit = true;
+    hitObj.dist = d2;
+    resetMaterial(hitObj.material);
+
     hitObj.material.color = vec3(1., 1., 1.);
-    hitObj.material.type = TYPE_REFLECTIVE;
-    hitObj.material.reflection_fuzz = 0.;
+    hitObj.material.specularColor = hitObj.material.color;
+    hitObj.material.type = TYPE_DIFFUSE;
+    hitObj.material.specularChance = 1.;
   }
-  hitObj.dist = min(hitObj.dist, d2);
 
   d2 = iPlane(ray.pos - plane_center - vec3(-3., 0., 0.), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, vec3(1., 0., 0.), 0.);
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
   if (d2 < hitObj.dist) {
+    hitObj.hit = true;
+    hitObj.dist = d2;
+    resetMaterial(hitObj.material);
+
     hitObj.material.color = vec3(1., 1., 1.);
     hitObj.material.type = TYPE_DIFFUSE;
   }
-  hitObj.dist = min(hitObj.dist, d2);
 
   d2 = iBox(ray.pos - plane_center - vec3(0., 0., 5.), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, vec3(20., 9., 0.1));
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
   if (d2 < hitObj.dist) {
+    hitObj.hit = true;
+    hitObj.dist = d2;
+    resetMaterial(hitObj.material);
+
     hitObj.material.color = vec3(1., 1., 0.);
     hitObj.material.type = TYPE_DIFFUSE;
     // hitObj.material.type = TYPE_REFRACTIVE;
     // hitObj.material.refraction_index = 1.31;
   }
-  hitObj.dist = min(hitObj.dist, d2);
 
   d2 = iBox(ray.pos - plane_center - vec3(0., 0., -7.), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, vec3(20., 9., 0.1));
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
   if (d2 < hitObj.dist) {
+    hitObj.hit = true;
+    hitObj.dist = d2;
+    resetMaterial(hitObj.material);
+
     hitObj.material.color = vec3(0., 1., 1.);
     hitObj.material.type = TYPE_DIFFUSE;
     // hitObj.material.type = TYPE_REFRACTIVE;
     // hitObj.material.refraction_index = 1.31;
   }
-  hitObj.dist = min(hitObj.dist, d2);
 
   d2 = iBox(ray.pos - plane_center - vec3(0., 8., 0.), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, vec3(20., 0.1, 20.));
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
   if (d2 < hitObj.dist) {
+    hitObj.hit = true;
+    hitObj.dist = d2;
+    resetMaterial(hitObj.material);
+
     hitObj.material.color = vec3(1., 1., 1.);
     hitObj.material.type = TYPE_DIFFUSE;
   }
-  hitObj.dist = min(hitObj.dist, d2);
 
   d2 = iBox(ray.pos - light_pos, ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, vec3(1., 0.0, 1.));
-  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
   if (d2 < hitObj.dist) {
-    hitObj.material.color = light_color;
-    hitObj.material.type = TYPE_EMMISIVE;
+    hitObj.hit = true;
+    hitObj.dist = d2;
+    resetMaterial(hitObj.material);
+
+    hitObj.material.emission = light_color;
+    hitObj.material.type = TYPE_DIFFUSE;
   }
-  hitObj.dist = min(hitObj.dist, d2);
 
   // d2 = iBox(ray.pos - plane_center - vec3(19., -13., 0.), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, vec3(0.1, 20., 20.));
   // hitObj.hit = hitObj.hit || d2 < hitObj.dist;
@@ -1344,7 +1335,16 @@ float _reflectance(float cos_i, float cos_t, float index) {
   float p = (index * cos_t - cos_i) / (index * cos_t + cos_i);
   vec2 sp = vec2(s, p);
 
-  return 0.5 * dot(sp, sp);
+  return min(0.5 * dot(sp, sp), 1.);
+}
+
+float _reflectance(float cos_i, float index) {
+  float cos_t = sqrt(1. - index * (1. - cos_i * cos_i));
+  float s = (index * cos_i - cos_t) / (index * cos_i + cos_t);
+  float p = (index * cos_t - cos_i) / (index * cos_t + cos_i);
+  vec2 sp = vec2(s, p);
+
+  return min(0.5 * dot(sp, sp), 1.);
 }
 
 
@@ -1412,74 +1412,89 @@ void main() {
     for (int i = 0; i < int(gi_reflection_depth) + 1; ++i) {
       float seed = x + i;
       Hit hitObj = scene(ray);
+      Material material = hitObj.material;
       float t = hitObj.dist;
       if (!hitObj.hit) break;
       vec3 pos = ray.pos + t * ray.dir;
       vec3 dir;
       vec3 col;
       float _r = random_0t1(uv_seed, x);
-      Material material = hitObj.material;
-      float is_specular_ray = float(random_0t1(uv_seed, x) < material.percentSpecular);
-      throughput *= mix(material.color, material.specularColor, is_specular_ray);
       
       // if (_r > 2./3.) {
-      if ((material.type & TYPE_EMMISIVE) != 0u) {
-        indirect_color += throughput;
-        break;
-      // } else if ((material.type & TYPE_REFLECTIVE) != 0u) {
-      //   vec3 d = sample_sphere(random_0t1_2(uv_seed, x));
-      //   dir = normalize(reflect(ray.dir, hitObj.normal) + d * material.reflection_fuzz);
-      //   pos = pos + min_dist * dir;
-      // } else if ((material.type & TYPE_REFRACTIVE) != 0u) {
-      //   vec3 d = sample_sphere(random_0t1_2(uv_seed, x));
-      //   float cos_angle = -dot(hitObj.normal, ray.dir);
-      //   int incoming = int(sign(cos_angle));
-      //   float index = incoming > 0. ? 1. / material.refraction_index : material.refraction_index;
-      //   vec3 normal = incoming * hitObj.normal;
-      //   dir = refract(ray.dir, normal, index);
+      if ((material.type & TYPE_REFRACTIVE) != 0u) {
+        float cos_angle = -dot(hitObj.normal, ray.dir);
+        int incoming = int(sign(cos_angle));
+        float index = incoming > 0. ? 1. / material.refraction_index : material.refraction_index;
+        vec3 normal = incoming * hitObj.normal;
+        dir = refract(ray.dir, normal, index);
 
-      //   // if (dir == vec3(0.) || (index < 1 && reflectance(cos_angle, index) > random_0t1(uv, x + .4)))
-      //   //   dir = reflect(ray.dir, normal);
-      //   // if (dir == vec3(0.) || reflectance(cos_angle, index) > random_0t1(uv, x + .4))
-      //   //   dir = reflect(ray.dir, normal);
-      //   // if (dir == vec3(0.) || _reflectance(cos_angle, -dot(dir, normal), index) > random_0t1(uv, x + .4))
-      //   //   dir = reflect(ray.dir, normal);
-      //   if (dir == vec3(0.) || (abs(material.refraction_index) > 1. && abs(index) < 1 && _reflectance(cos_angle, -dot(dir, normal), index) > random_0t1(uv_seed, x)))
-      //     dir = reflect(ray.dir, normal);
-      //   // if (dir == vec3(0.))
-      //   //   dir = reflect(ray.dir, normal);
+        // if (dir == vec3(0.) || (index < 1 && reflectance(cos_angle, index) > random_0t1(uv, x + .4)))
+        //   dir = reflect(ray.dir, normal);
+        // if (dir == vec3(0.) || reflectance(cos_angle, index) > random_0t1(uv, x + .4))
+        //   dir = reflect(ray.dir, normal);
+        // if (dir == vec3(0.) || _reflectance(cos_angle, -dot(dir, normal), index) > random_0t1(uv, x + .4))
+        //   dir = reflect(ray.dir, normal);
+        if (dir == vec3(0.) || (abs(material.refraction_index) > 1. && abs(index) < 1 && _reflectance(cos_angle, -dot(dir, normal), index) > random_0t1(uv_seed, x)))
+          dir = reflect(ray.dir, normal);
+        // if (dir == vec3(0.))
+        //   dir = reflect(ray.dir, normal);
 
-      //   pos = pos + min_dist * dir;
-      // } else if ((material.type & TYPE_SUBSUFRACE) != 0u) {
-        // vec3 d = sample_sphere(random_0t1_2(uv_seed, x));
-        // float cos_angle = -dot(hitObj.normal, ray.dir);
-        // if (cos_angle > 0.) {
-        //   float scatter_distance = pow(10., int(a) - 1);
-        //   float scatter_t = -log(random_0t1(uv_seed, x)) * scatter_distance;
-        //   if (scatter_t < t && i < int(gi_reflection_depth)) {
-        //     t = scatter_t;
-        //     dir = d;
-        //     pos = ray.pos + t * ray.dir;
-        //     throughput *= exp(-t / scatter_distance);
-        //   } else {
-        //     dir = sign(dot(hitObj.normal, d)) * d;
-        //   }
-        // } else {
-        //   dir = -sign(dot(hitObj.normal, d)) * d;
-        // }
-        // pos = pos + min_dist * dir;
-      // } else {
-      //   vec3 d = sample_sphere(random_0t1_2(uv_seed, x));
-      //   dir = normalize(d + hitObj.normal);
+        pos = pos + min_dist * dir;
+      } else 
+      if ((material.type & TYPE_SUBSUFRACE) != 0u) {
+        vec3 d = sample_sphere(random_0t1_2(uv_seed, x));
+        float cos_angle = -dot(hitObj.normal, ray.dir);
+        if (cos_angle > 0.) {
+          float scatter_distance = pow(10., int(a) - 1);
+          float scatter_t = -log(random_0t1(uv_seed, x)) * scatter_distance;
+          if (scatter_t < t && i < int(gi_reflection_depth)) {
+            t = scatter_t;
+            dir = d;
+            pos = ray.pos + t * ray.dir;
+            throughput *= exp(-t / scatter_distance);
+          } else {
+            dir = sign(dot(hitObj.normal, d)) * d;
+          }
+        } else {
+          dir = -sign(dot(hitObj.normal, d)) * d;
+        }
+        pos = pos + min_dist * dir;
+      } else {
+        vec3 diffuse = normalize(sample_sphere(random_0t1_2(uv_seed, x)) + hitObj.normal);
+        vec3 diffuse_in = normalize(sample_sphere(random_0t1_2(uv_seed, x)) + hitObj.normal);
+
+        float cos_angle = -dot(hitObj.normal, ray.dir);
+        float index = cos_angle > 0. ? 1. / material.refraction_index : material.refraction_index;
+        vec3 _refracted = refract(ray.dir, sign(cos_angle) * hitObj.normal, index);
+        vec3 refracted = normalize(mix(_refracted, sign(cos_angle) * diffuse_in, material.refraction_roughness));
+
+        float chance = 1.;
+        float specular_chance = material.specularChance;
+        float refraction_chance = material.refraction_chance;
+        if (specular_chance > 0.) {
+        	specular_chance = mix(specular_chance, 1., _reflectance(cos_angle, -dot(_refracted, sign(cos_angle) * hitObj.normal), index));
+
+          // float chanceMultiplier = (1.0f - specularChance) / (1.0f - hitInfo.material.specularChance);
+          // refractionChance *= chanceMultiplier;
+          // diffuseChance *= chanceMultiplier;
+        }
+
+        indirect_color += material.emission * throughput;
+
+        float _r2 = random_0t1(uv_seed, x);
+        bool is_specular = _r2 < specular_chance;
+        bool is_refraction = !is_specular && _r2 < specular_chance + refraction_chance;
+        throughput *= mix(material.color, material.specularColor, float(is_specular)); 
+        chance = is_specular ? specular_chance : is_refraction ? refraction_chance : 1. - specular_chance + refraction_chance;
+
+        vec3 reflected = reflect(ray.dir, hitObj.normal);
+        vec3 specular = normalize(mix(reflected, diffuse, material.roughness));
+        dir = mix(diffuse, specular, float(is_specular));
+        dir = mix(dir, refracted, float(is_refraction));
+        throughput /= max(chance, min_dist);
       }
       // indirect_color += light(pos, hitObj.normal, random_0t1_2(uv_seed, x)) * throughput;
       // indirect_color += sun(pos, hitObj.normal) * throughput;      
-      
-      vec3 _d = sample_sphere(random_0t1_2(uv_seed, x));
-      vec3 diffuseRayDir = normalize(_d + hitObj.normal);
-      vec3 specularRayDir = normalize(mix(reflect(ray.dir, hitObj.normal), diffuseRayDir, material.roughness));
-      // calculate whether we are going to do a diffuse or specular reflection ray 
-      dir = mix(diffuseRayDir, specularRayDir, is_specular_ray);
 
       ray = Ray(pos, dir);
 

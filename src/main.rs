@@ -144,12 +144,12 @@ fn main() {
     let opengl = Api::opengl(4, 5);
 
     // let mut window: PistonWindow = WindowSettings::new("piston: cube", [1280, 720])
-    // let mut window = WindowSettings::new("raytracing", [1920, 1080])
-    let mut window: PistonWindow = WindowSettings::new("piston: cube", [2560, 1440])
+    let mut window = WindowSettings::new("raytracing", [1920, 1080])
+        // let mut window: PistonWindow = WindowSettings::new("piston: cube", [2560, 1440])
         .exit_on_esc(true)
         .graphics_api(opengl)
         .vsync(false)
-        .fullscreen(true)
+        // .fullscreen(true)
         .build::<PistonWindow>()
         .unwrap()
         .lazy(false)
