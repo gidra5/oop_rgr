@@ -9,7 +9,7 @@ const float PI      = 3.14159265358979323846264;
 const float E       = 2.71828182845904523536028;
 const float TWO_PI  = 6.28318530717958647692528;
 const float INV_PI  = 1 / PI;
-const uint TYPE_DIFFUSE = 0x00000000u;
+const uint TYPE_DIFFUSE = 0x00000001u;
 const uint TYPE_REFRACTIVE = 0x00000002u;
 const uint TYPE_SUBSUFRACE = 0x00000004u;
 
@@ -1081,7 +1081,7 @@ Hit scene(in Ray ray) {
       hitObj.material.color = vec3(1.);
       hitObj.material.specularChance = 0.02f;
       hitObj.material.roughness = 0.;
-      hitObj.material.specularColor = vec3(1.0f, 1.0f, 1.0f) * 0.8f;
+      hitObj.material.specularColor = vec3(0.8f);
       hitObj.material.refraction_chance = 1.0f;
       hitObj.material.refraction_roughness = 0.0f;
 
@@ -1106,8 +1106,8 @@ Hit scene(in Ray ray) {
       hitObj.material.type = TYPE_REFRACTIVE;
       hitObj.material.refraction_index = exp(-i * 0.6) / (1 + exp(-i * 0.6));
     }
-    d2 = iSphere(ray.pos - sphere_center - vec3(1.5 + i, -.5, 3.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
 
+    d2 = iSphere(ray.pos - sphere_center - vec3(1.5 + i, -.5, 3.5), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, 0.5);
     if (d2 < hitObj.dist) {
       hitObj.hit = true;
       hitObj.dist = d2;
@@ -1418,29 +1418,27 @@ void main() {
       vec3 pos = ray.pos + t * ray.dir;
       vec3 dir;
       vec3 col;
-      float _r = random_0t1(uv_seed, x);
-      
-      // if (_r > 2./3.) {
-      if ((material.type & TYPE_REFRACTIVE) != 0u) {
-        float cos_angle = -dot(hitObj.normal, ray.dir);
-        int incoming = int(sign(cos_angle));
-        float index = incoming > 0. ? 1. / material.refraction_index : material.refraction_index;
-        vec3 normal = incoming * hitObj.normal;
-        dir = refract(ray.dir, normal, index);
 
-        // if (dir == vec3(0.) || (index < 1 && reflectance(cos_angle, index) > random_0t1(uv, x + .4)))
-        //   dir = reflect(ray.dir, normal);
-        // if (dir == vec3(0.) || reflectance(cos_angle, index) > random_0t1(uv, x + .4))
-        //   dir = reflect(ray.dir, normal);
-        // if (dir == vec3(0.) || _reflectance(cos_angle, -dot(dir, normal), index) > random_0t1(uv, x + .4))
-        //   dir = reflect(ray.dir, normal);
-        if (dir == vec3(0.) || (abs(material.refraction_index) > 1. && abs(index) < 1 && _reflectance(cos_angle, -dot(dir, normal), index) > random_0t1(uv_seed, x)))
-          dir = reflect(ray.dir, normal);
-        // if (dir == vec3(0.))
-        //   dir = reflect(ray.dir, normal);
+      // if ((material.type & TYPE_REFRACTIVE) != 0u) {
+      //   float cos_angle = -dot(hitObj.normal, ray.dir);
+      //   int incoming = int(sign(cos_angle));
+      //   float index = incoming > 0. ? 1. / material.refraction_index : material.refraction_index;
+      //   vec3 normal = incoming * hitObj.normal;
+      //   dir = refract(ray.dir, normal, index);
 
-        pos = pos + min_dist * dir;
-      } else 
+      //   // if (dir == vec3(0.) || (index < 1 && reflectance(cos_angle, index) > random_0t1(uv, x + .4)))
+      //   //   dir = reflect(ray.dir, normal);
+      //   // if (dir == vec3(0.) || reflectance(cos_angle, index) > random_0t1(uv, x + .4))
+      //   //   dir = reflect(ray.dir, normal);
+      //   // if (dir == vec3(0.) || _reflectance(cos_angle, -dot(dir, normal), index) > random_0t1(uv, x + .4))
+      //   //   dir = reflect(ray.dir, normal);
+      //   if (dir == vec3(0.) || (abs(material.refraction_index) > 1. && abs(index) < 1 && _reflectance(cos_angle, -dot(dir, normal), index) > random_0t1(uv_seed, x)))
+      //     dir = reflect(ray.dir, normal);
+      //   // if (dir == vec3(0.))
+      //   //   dir = reflect(ray.dir, normal);
+
+      //   pos = pos + min_dist * dir;
+      // } else 
       if ((material.type & TYPE_SUBSUFRACE) != 0u) {
         vec3 d = sample_sphere(random_0t1_2(uv_seed, x));
         float cos_angle = -dot(hitObj.normal, ray.dir);
@@ -1465,7 +1463,10 @@ void main() {
 
         float cos_angle = -dot(hitObj.normal, ray.dir);
         float index = cos_angle > 0. ? 1. / material.refraction_index : material.refraction_index;
-        vec3 _refracted = refract(ray.dir, sign(cos_angle) * hitObj.normal, index);
+        vec3 normal = sign(cos_angle) * hitObj.normal;
+        vec3 _refracted = refract(ray.dir, normal, index);
+        if (_refracted == vec3(0.) || (abs(material.refraction_index) > 1. && abs(index) < 1 && _reflectance(cos_angle, -dot(_refracted, normal), index) > random_0t1(uv_seed, x)))
+          _refracted = reflect(ray.dir, normal);
         vec3 refracted = normalize(mix(_refracted, sign(cos_angle) * diffuse_in, material.refraction_roughness));
 
         float chance = 1.;
@@ -1474,8 +1475,8 @@ void main() {
         if (specular_chance > 0.) {
         	specular_chance = mix(specular_chance, 1., _reflectance(cos_angle, -dot(_refracted, sign(cos_angle) * hitObj.normal), index));
 
-          // float chanceMultiplier = (1.0f - specularChance) / (1.0f - hitInfo.material.specularChance);
-          // refractionChance *= chanceMultiplier;
+          float chanceMultiplier = (1.0f - specular_chance) / (1.0f - material.specularChance);
+          refraction_chance *= chanceMultiplier;
           // diffuseChance *= chanceMultiplier;
         }
 
@@ -1485,13 +1486,16 @@ void main() {
         bool is_specular = _r2 < specular_chance;
         bool is_refraction = !is_specular && _r2 < specular_chance + refraction_chance;
         throughput *= mix(material.color, material.specularColor, float(is_specular)); 
-        chance = is_specular ? specular_chance : is_refraction ? refraction_chance : 1. - specular_chance + refraction_chance;
+        chance = is_specular ? specular_chance : is_refraction ? refraction_chance : 1. - (specular_chance + refraction_chance);
 
         vec3 reflected = reflect(ray.dir, hitObj.normal);
         vec3 specular = normalize(mix(reflected, diffuse, material.roughness));
         dir = mix(diffuse, specular, float(is_specular));
-        dir = mix(dir, refracted, float(is_refraction));
+        // dir = mix(dir, refracted, float(is_refraction));
         throughput /= max(chance, min_dist);
+
+        if (is_refraction) pos = pos - min_dist * hitObj.normal;
+        if (is_specular) pos = pos + min_dist * hitObj.normal;
       }
       // indirect_color += light(pos, hitObj.normal, random_0t1_2(uv_seed, x)) * throughput;
       // indirect_color += sun(pos, hitObj.normal) * throughput;      
