@@ -38,6 +38,8 @@ uniform float lensFocusDistance;
 uniform float circleOfConfusionRadius;
 uniform float exposure;
 uniform float ambience;
+uniform float sigma_t;
+uniform float sigma_f;
 
 const mat3 triangle_pts = mat3(
   vec3(0.),
@@ -45,6 +47,9 @@ const mat3 triangle_pts = mat3(
   vec3(1., 1., 0.)
 );
 const vec3 sun_color = vec3(0x92, 0x97, 0xC4) / 0xff * 0.9;
+// const vec3 sun_dir = normalize(vec3(1., 1., -1.));
+const vec3 sun_dir = normalize(vec3(10., 1., -1.));
+  // vec3 dir = normalize(vec3(0.01, 1., -0.01));
 
 uniform vec3 light_pos;
 uniform vec3 light_color;
@@ -55,6 +60,7 @@ uniform vec3 cylinder_center;
 struct Ray {
   vec3 pos; // Origin
   vec3 dir; // Direction (normalized)
+  vec3 throughput;
 };
 
 struct Light {
@@ -951,27 +957,27 @@ float raw_ds(vec3 p) {
   return d;
 }
 
-float dist_scene(Ray ray) {
-  vec3 p = ray.pos;
-  vec3 dir = ray.dir;
-  float d = max_dist;
+// float dist_scene(Ray ray) {
+//   vec3 p = ray.pos;
+//   vec3 dir = ray.dir;
+//   float d = max_dist;
 
-  // d = min(d, sphere(p - sphere_center, dir, 1.));
-  if (can_sphere(Ray(p - sphere_center, dir), 1.))
-    d = min(d, sphere(p - sphere_center, 1.));
+//   // d = min(d, sphere(p - sphere_center, dir, 1.));
+//   if (can_sphere(Ray(p - sphere_center, dir), 1.))
+//     d = min(d, sphere(p - sphere_center, 1.));
 
-  d = min(d, plane(Ray(p - plane_center, dir), vec3(0., 1., 0.)));
-  // if (can_plane(p - plane_center, dir, vec3(0., 1., 0.)))
-  // d = min(d, plane(p - plane_center, vec3(0., 1., 0.)));
+//   d = min(d, plane(Ray(p - plane_center, dir), vec3(0., 1., 0.)));
+//   // if (can_plane(p - plane_center, dir, vec3(0., 1., 0.)))
+//   // d = min(d, plane(p - plane_center, vec3(0., 1., 0.)));
 
-  if (can_cylinder(Ray(p - cylinder_center, dir), vec3(0., 1., 0.), 1.))
-    d = min(d, cylinder(p - cylinder_center, vec3(0., 1., 0.), 1.));
+//   if (can_cylinder(Ray(p - cylinder_center, dir), vec3(0., 1., 0.), 1.))
+//     d = min(d, cylinder(p - cylinder_center, vec3(0., 1., 0.), 1.));
 
-  // if (can_triangle(dir, p - vec3(2., 0., 2.), triangle_pts[0], triangle_pts[1], triangle_pts[2]))
-    // d = min(d, triangle(p - vec3(2., 0., 2.), triangle_pts[0], triangle_pts[1], triangle_pts[2]));
+//   // if (can_triangle(dir, p - vec3(2., 0., 2.), triangle_pts[0], triangle_pts[1], triangle_pts[2]))
+//     // d = min(d, triangle(p - vec3(2., 0., 2.), triangle_pts[0], triangle_pts[1], triangle_pts[2]));
 
-  return d;
-}
+//   return d;
+// }
 
 vec3 dist_scene_gradient(vec3 p) {
   float d = raw_ds(p);
@@ -1001,7 +1007,7 @@ vec3 dist_scene_gradient(vec3 p) {
 // }
 
 void resetMaterial(out Material m) {
-  m.roughness = 0.;
+  m.roughness = 1.;
   m.color = vec3(1.);
   m.emission = vec3(0.);
   m.specularChance = 0.0;
@@ -1209,13 +1215,13 @@ Hit scene(in Ray ray) {
     hitObj.material.type = TYPE_DIFFUSE;
   }
 
-  // d2 = iBox(ray.pos - plane_center - vec3(19., -13., 0.), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, vec3(0.1, 20., 20.));
-  // hitObj.hit = hitObj.hit || d2 < hitObj.dist;
-  // if (d2 < hitObj.dist) {
-  //   hitObj.material.color = vec3(1., 1., 1.);
-  //   hitObj.material.type = TYPE_DIFFUSE;
-  // }
-  // hitObj.dist = min(hitObj.dist, d2);
+  d2 = iBox(ray.pos - plane_center - vec3(19., -13., 0.), ray.dir, vec2(min_dist, hitObj.dist), hitObj.normal, vec3(0.1, 20., 20.));
+  hitObj.hit = hitObj.hit || d2 < hitObj.dist;
+  if (d2 < hitObj.dist) {
+    hitObj.material.color = vec3(1., 1., 1.);
+    hitObj.material.type = TYPE_DIFFUSE;
+  }
+  hitObj.dist = min(hitObj.dist, d2);
 
   return hitObj;
 }
@@ -1267,14 +1273,34 @@ Light sample_light(in vec2 _p) {
   return Light(light_pos + vec3(p.x, 0., p.y), 4. * light_color);
 }
 
-vec3 _light(in vec3 pos, in vec3 norm, in Light light) {
+vec3 sun_light_col(in vec3 dir, in vec3 norm, in vec3 light_color) {
+  return max(dot(dir, norm), 0.) * light_color;
+}
+vec3 sun_light_col(in vec3 dir, in vec3 norm) {
+  return max(dot(dir, norm), 0.) * sun_color;
+}
+
+vec3 point_light_col(in vec3 pos, in vec3 norm, in Light light) {
   vec3 d = light.pos - pos;
   float mag_sq = dot(d, d);
   float mag = sqrt(mag_sq);
   vec3 dir = d / mag;
-  float vis = in_shadow(Ray(pos, dir), mag_sq);
+  return sun_light_col(dir, norm, light.color) / mag_sq;
+}
 
-  return vis * max(dot(dir, norm), 0.) * light.color / mag_sq;
+float light_vis(in vec3 pos, in vec3 dir, in float mag_sq) {
+  return in_shadow(Ray(pos, dir, vec3(1.)), mag_sq);
+}
+
+float light_vis(in vec3 pos, in vec3 dir) {
+  return in_shadow(Ray(pos, dir, vec3(1.)), 0.99 / (min_dist * min_dist));
+}
+
+vec3 _light(in vec3 pos, in vec3 norm, in Light light) {
+  vec3 d = light.pos - pos;
+  float mag_sq = dot(d, d);
+  vec3 dir = d * inversesqrt(mag_sq);
+  return light_vis(pos, dir, mag_sq) * point_light_col(pos, norm, light);
 }
 
 vec3 light(in vec3 pos, in vec3 norm, in vec2 t) {
@@ -1284,12 +1310,10 @@ vec3 light(in vec3 pos, in vec3 norm, in vec2 t) {
 }
 
 vec3 sun(in vec3 pos, in vec3 norm) {
-  // vec3 dir = normalize(vec3(10., 1., -1.));
-  vec3 dir = normalize(vec3(0.01, 1., -0.01));
-  float vis = in_shadow(Ray(pos, dir), 0.99 / (min_dist * min_dist));
-
-  return (vis * max(dot(dir, norm), 0.) + ambience) * sun_color;
+  return light_vis(pos, sun_dir) * sun_light_col(sun_dir, norm) + ambience * sun_color;
 }
+
+
 
 
 
@@ -1314,20 +1338,19 @@ vec3 paniniRay(in vec2 pixel) {
   return vec3(x, y, z);
 }
 
-Ray thinLensRay(in vec3 ray, in vec2 uv) {
-  vec3 origin = vec3(uv * circleOfConfusionRadius, 0.f);
-  vec3 direction = normalize(ray * lensFocusDistance - origin);
-  return Ray(origin, direction);
+void thinLensRay(in vec3 dir, in vec2 uv, out Ray ray) {
+  ray.pos = vec3(uv * circleOfConfusionRadius, 0.f);
+  ray.dir = normalize(dir * lensFocusDistance - ray.pos);
 }
 
 
 
 
-float reflectance(float cos_angle, float refraction_index) {
+float reflectance(float cos_angle, float index) {
   // Use Schlick's approximation for reflectance.
-  float r0 = (1-refraction_index) / (1+refraction_index);
+  float r0 = (1-index) / (1+index);
   r0 = r0 * r0;
-  return r0 + (1 - r0) * pow((1 - cos_angle), 5);
+  return mix(1., pow((1 - cos_angle), 5), r0);
 }
 
 float _reflectance(float cos_i, float cos_t, float index) {
@@ -1340,11 +1363,7 @@ float _reflectance(float cos_i, float cos_t, float index) {
 
 float _reflectance(float cos_i, float index) {
   float cos_t = sqrt(1. - index * (1. - cos_i * cos_i));
-  float s = (index * cos_i - cos_t) / (index * cos_i + cos_t);
-  float p = (index * cos_t - cos_i) / (index * cos_t + cos_i);
-  vec2 sp = vec2(s, p);
-
-  return min(0.5 * dot(sp, sp), 1.);
+  return _reflectance(cos_i, cos_t, index);
 }
 
 
@@ -1385,6 +1404,9 @@ vec3 ACESFilm(vec3 x)
   return clamp((x*(a*x + b)) / (x*(c*x + d) + e), 0.0f, 1.0f);
 }
 
+float sq(float v) {
+  return v * v;
+}
 
 
 
@@ -1400,14 +1422,16 @@ void main() {
     // vec3 rayDirection = normalize(pinholeRay(uv));
     float uv_seed = vec_to_float(uv);
     
-    Ray ray = thinLensRay(rayDirection, sample_incircle(random_0t1_2(uv_seed, x)));
+    Ray ray;
+    thinLensRay(rayDirection, sample_incircle(random_0t1_2(uv_seed, x)), ray);
+
     vec4 ray_pos = u_view * vec4(ray.pos, 1.);
     ray.pos = ray_pos.xyz;
     ray.dir = normalize(vec3(ray.dir.xy, ray.dir.z * ray_pos.w));
     ray.dir = (u_view * vec4(ray.dir, 0.)).xyz;
 
     vec3 indirect_color = vec3(0.);
-    vec3 throughput = vec3(1.);
+    ray.throughput = vec3(1.);
 
     for (int i = 0; i < int(gi_reflection_depth) + 1; ++i) {
       float seed = x + i;
@@ -1415,99 +1439,157 @@ void main() {
       Material material = hitObj.material;
       float t = hitObj.dist;
       if (!hitObj.hit) break;
+      float cos_angle = -dot(hitObj.normal, ray.dir);
+      int incoming = int(sign(cos_angle));
       vec3 pos = ray.pos + t * ray.dir;
       vec3 dir;
       vec3 col;
+      float scatter_t = -log(random_0t1(uv_seed, x)) * sigma_t;
 
-      // if ((material.type & TYPE_REFRACTIVE) != 0u) {
-      //   float cos_angle = -dot(hitObj.normal, ray.dir);
-      //   int incoming = int(sign(cos_angle));
-      //   float index = incoming > 0. ? 1. / material.refraction_index : material.refraction_index;
-      //   vec3 normal = incoming * hitObj.normal;
-      //   dir = refract(ray.dir, normal, index);
+      if (t < scatter_t) {
+        float _r1 = random_0t1(uv_seed, x);
+        if (3. * _r1 < 1.) {
+          // if ((material.type & TYPE_REFRACTIVE) != 0u) {
+          //   float cos_angle = -dot(hitObj.normal, ray.dir);
+          //   int incoming = int(sign(cos_angle));
+          //   float index = incoming > 0. ? 1. / material.refraction_index : material.refraction_index;
+          //   vec3 normal = incoming * hitObj.normal;
+          //   dir = refract(ray.dir, normal, index);
 
-      //   // if (dir == vec3(0.) || (index < 1 && reflectance(cos_angle, index) > random_0t1(uv, x + .4)))
-      //   //   dir = reflect(ray.dir, normal);
-      //   // if (dir == vec3(0.) || reflectance(cos_angle, index) > random_0t1(uv, x + .4))
-      //   //   dir = reflect(ray.dir, normal);
-      //   // if (dir == vec3(0.) || _reflectance(cos_angle, -dot(dir, normal), index) > random_0t1(uv, x + .4))
-      //   //   dir = reflect(ray.dir, normal);
-      //   if (dir == vec3(0.) || (abs(material.refraction_index) > 1. && abs(index) < 1 && _reflectance(cos_angle, -dot(dir, normal), index) > random_0t1(uv_seed, x)))
-      //     dir = reflect(ray.dir, normal);
-      //   // if (dir == vec3(0.))
-      //   //   dir = reflect(ray.dir, normal);
+          //   if (dir == vec3(0.) || (abs(material.refraction_index) > 1. && abs(index) < 1 && _reflectance(cos_angle, -dot(dir, normal), index) > random_0t1(uv_seed, x)))
+          //     dir = reflect(ray.dir, normal);
 
-      //   pos = pos + min_dist * dir;
-      // } else 
-      if ((material.type & TYPE_SUBSUFRACE) != 0u) {
-        vec3 d = sample_sphere(random_0t1_2(uv_seed, x));
-        float cos_angle = -dot(hitObj.normal, ray.dir);
-        if (cos_angle > 0.) {
-          float scatter_distance = pow(10., int(a) - 1);
-          float scatter_t = -log(random_0t1(uv_seed, x)) * scatter_distance;
-          if (scatter_t < t && i < int(gi_reflection_depth)) {
-            t = scatter_t;
-            dir = d;
-            pos = ray.pos + t * ray.dir;
-            throughput *= exp(-t / scatter_distance);
-          } else {
-            dir = sign(dot(hitObj.normal, d)) * d;
-          }
-        } else {
-          dir = -sign(dot(hitObj.normal, d)) * d;
+          //   pos = pos + min_dist * dir;
+          // } 
+          // else 
+          // if ((material.type & TYPE_SUBSUFRACE) != 0u) {
+          //   vec3 d = sample_sphere(random_0t1_2(uv_seed, x));
+          //   float cos_angle = -dot(hitObj.normal, ray.dir);
+          //   if (cos_angle > 0.) {
+          //     float scatter_distance = pow(10., int(a) - 1);
+          //     float scatter_t = -log(random_0t1(uv_seed, x)) * scatter_distance;
+          //     if (scatter_t < t && i < int(gi_reflection_depth)) {
+          //       t = scatter_t;
+          //       dir = d;
+          //       pos = ray.pos + t * ray.dir;
+          //       ray.throughput *= exp(-t / scatter_distance);
+          //     } else {
+          //       dir = sign(dot(hitObj.normal, d)) * d;
+          //     }
+          //   } else {
+          //     dir = -sign(dot(hitObj.normal, d)) * d;
+          //   }
+          //   pos = pos + min_dist * dir;
+          // } else {
+            // vec3 diffuse_out = normalize(sample_sphere(random_0t1_2(uv_seed, x)) + hitObj.normal);
+            // vec3 diffuse_in = normalize(sample_sphere(random_0t1_2(uv_seed, x)) + hitObj.normal);
+
+            // float cos_angle = -dot(hitObj.normal, ray.dir);
+            // float index = cos_angle > 0. ? 1. / material.refraction_index : material.refraction_index;
+            // vec3 normal = sign(cos_angle) * hitObj.normal;
+            // vec3 _refracted = refract(ray.dir, normal, index);
+            // if (_refracted == vec3(0.) || (abs(material.refraction_index) > 1. && abs(index) < 1 && _reflectance(cos_angle, -dot(_refracted, normal), index) > random_0t1(uv_seed, x)))
+            //   _refracted = reflect(ray.dir, normal);
+            // vec3 refracted = normalize(mix(_refracted, sign(cos_angle) * diffuse_in, material.refraction_roughness));
+
+            // float chance = 1.;
+            // float specular_chance = material.specularChance;
+            // float refraction_chance = material.refraction_chance;
+            // if (specular_chance > 0.) {
+            //   specular_chance = mix(specular_chance, 1., _reflectance(cos_angle, -dot(_refracted, sign(cos_angle) * hitObj.normal), index));
+
+            //   float chanceMultiplier = (1.0f - specular_chance) / (1.0f - material.specularChance);
+            //   refraction_chance *= chanceMultiplier;
+            //   // diffuseChance *= chanceMultiplier;
+            // }
+
+            // col += material.emission;
+
+            // float _r2 = random_0t1(uv_seed, x);
+            // bool is_specular = _r2 < specular_chance;
+            // bool is_refraction = !is_specular && _r2 < specular_chance + refraction_chance;
+            // ray.throughput *= mix(material.color, material.specularColor, float(is_specular)); 
+            // chance = is_specular ? specular_chance : is_refraction ? refraction_chance : 1. - (specular_chance + refraction_chance);
+
+            // vec3 reflected = reflect(ray.dir, hitObj.normal);
+            // vec3 specular = normalize(mix(reflected, diffuse_out, material.roughness));
+            // dir = mix(diffuse_out, specular, float(is_specular));
+            // // dir = mix(dir, refracted, float(is_refraction));
+            // ray.throughput /= max(chance, min_dist);
+
+            // if (is_refraction) pos = pos - min_dist * hitObj.normal;
+            // if (is_specular) pos = pos + min_dist * hitObj.normal;
+          // }
+
+          
+
+            // float index = incoming > 0. ? 1. / material.refraction_index : material.refraction_index;
+            // vec3 normal = incoming * hitObj.normal;
+
+            // vec3 refracted = refract(ray.dir, normal, index);
+            // vec3 reflected = reflect(ray.dir, normal);
+            vec3 diffuse = normalize(sample_sphere(random_0t1_2(uv_seed, x)) + hitObj.normal);
+
+            // bool is_reflected = _reflectance(cos_angle, -dot(refracted, normal), index) > random_0t1(uv_seed, x);
+
+            // dir = mix(
+            //   mix(refracted, -diffuse, float(material.refraction_roughness > random_0t1(uv_seed, x))), 
+            //   mix(reflected,  diffuse, float(material.roughness > random_0t1(uv_seed, x))), 
+            //   float(is_reflected)
+            // );
+            // dir = mix(reflected,  diffuse, float(material.roughness > random_0t1(uv_seed, x)));
+            dir = diffuse;
+            ray.throughput *= material.color;
+            // ray.throughput *= mix(material.color, material.specularColor, float(is_specular));
+            // ray.throughput *= mix(material.color, material.specularColor, float(is_reflected));
+            col += material.emission;
+        } else 
+        if (3. * _r1 < 2.) 
+        {
+          ray.throughput *= material.color; 
+          col += light(pos, hitObj.normal, random_0t1_2(uv_seed, x));
+        } 
+        else 
+        {
+          ray.throughput *= material.color; 
+          col += sun(pos, hitObj.normal); 
         }
-        pos = pos + min_dist * dir;
       } else {
-        vec3 diffuse = normalize(sample_sphere(random_0t1_2(uv_seed, x)) + hitObj.normal);
-        vec3 diffuse_in = normalize(sample_sphere(random_0t1_2(uv_seed, x)) + hitObj.normal);
-
-        float cos_angle = -dot(hitObj.normal, ray.dir);
-        float index = cos_angle > 0. ? 1. / material.refraction_index : material.refraction_index;
-        vec3 normal = sign(cos_angle) * hitObj.normal;
-        vec3 _refracted = refract(ray.dir, normal, index);
-        if (_refracted == vec3(0.) || (abs(material.refraction_index) > 1. && abs(index) < 1 && _reflectance(cos_angle, -dot(_refracted, normal), index) > random_0t1(uv_seed, x)))
-          _refracted = reflect(ray.dir, normal);
-        vec3 refracted = normalize(mix(_refracted, sign(cos_angle) * diffuse_in, material.refraction_roughness));
-
-        float chance = 1.;
-        float specular_chance = material.specularChance;
-        float refraction_chance = material.refraction_chance;
-        if (specular_chance > 0.) {
-        	specular_chance = mix(specular_chance, 1., _reflectance(cos_angle, -dot(_refracted, sign(cos_angle) * hitObj.normal), index));
-
-          float chanceMultiplier = (1.0f - specular_chance) / (1.0f - material.specularChance);
-          refraction_chance *= chanceMultiplier;
-          // diffuseChance *= chanceMultiplier;
-        }
-
-        indirect_color += material.emission * throughput;
-
-        float _r2 = random_0t1(uv_seed, x);
-        bool is_specular = _r2 < specular_chance;
-        bool is_refraction = !is_specular && _r2 < specular_chance + refraction_chance;
-        throughput *= mix(material.color, material.specularColor, float(is_specular)); 
-        chance = is_specular ? specular_chance : is_refraction ? refraction_chance : 1. - (specular_chance + refraction_chance);
-
-        vec3 reflected = reflect(ray.dir, hitObj.normal);
-        vec3 specular = normalize(mix(reflected, diffuse, material.roughness));
-        dir = mix(diffuse, specular, float(is_specular));
-        // dir = mix(dir, refracted, float(is_refraction));
-        throughput /= max(chance, min_dist);
-
-        if (is_refraction) pos = pos - min_dist * hitObj.normal;
-        if (is_specular) pos = pos + min_dist * hitObj.normal;
+        float _r1 = random_0t1(uv_seed, x);
+        pos = ray.pos + scatter_t * ray.dir;
+        // atmospheric scatter
+        // if (incoming > 0.) {
+          if (3. * _r1 < 1.) {
+            dir = normalize(sample_sphere(random_0t1_2(uv_seed, x)) + ray.dir * sigma_f);
+          } else 
+          if (3. * _r1 < 2.) 
+          {
+            Light light = sample_light(random_0t1_2(uv_seed, x));
+            vec3 d = light.pos - pos;
+            float mag_sq = dot(d, d);
+            col += light_vis(pos, normalize(d), mag_sq) * light.color;
+          } 
+          else 
+          {
+            col += light_vis(pos, sun_dir) * sun_color; 
+          }
+        // subsurface scatter
+        // } else {
+        //   ray.throughput *= material.color;
+        //   dir = sample_sphere(random_0t1_2(uv_seed, x));
+        //   pos = ray.pos + _r2 * ray.dir;
+        // }
       }
-      // indirect_color += light(pos, hitObj.normal, random_0t1_2(uv_seed, x)) * throughput;
-      // indirect_color += sun(pos, hitObj.normal) * throughput;      
+      indirect_color += col * ray.throughput;
 
-      ray = Ray(pos, dir);
+      ray = Ray(pos, dir, ray.throughput);
 
       // Russian Roulette
-      if (all(greaterThan(vec3(random_0t1(uv_seed, x)), throughput)))
+      if (all(greaterThan(vec3(random_0t1(uv_seed, x)), ray.throughput)))
         break;
   
       // Add the energy we 'lose' by randomly terminating paths
-      throughput /= max(throughput.r, max(throughput.g, throughput.b));
+      ray.throughput /= max(ray.throughput.r, max(ray.throughput.g, ray.throughput.b));
     }
 
     _frag_color += indirect_color;

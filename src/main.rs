@@ -43,6 +43,8 @@ gfx_defines! {
         ambience:                   gfx::Global        <  f32                      > = "ambience",
         min_dist:                   gfx::Global        <  f32                      > = "min_dist",
         max_dist:                   gfx::Global        <  f32                      > = "max_dist",
+        sigma_t:                    gfx::Global        <  f32                      > = "sigma_t",
+        sigma_f:                    gfx::Global        <  f32                      > = "sigma_f",
         a:                          gfx::Global        <  u32                      > = "a",
         b:                          gfx::Global        <  u32                      > = "b",
         c:                          gfx::Global        <  u32                      > = "c",
@@ -91,6 +93,8 @@ widget_ids! {
         slider_lens_focal_length,
         slider_circle_of_confusion_radius,
         slider_exposure,
+        slider_sigma_t,
+        slider_sigma_f,
         slider_min_dist,
         slider_max_dist,
         xypad_light_color_hue_brightness,
@@ -451,6 +455,26 @@ fn main() {
                     .set(ids.slider_exposure, &mut ui)
                 {
                     data.exposure = exposure.powf(5.);
+                }
+                // widget::Text::new("Sigma")
+                //     .mid_top_with_margin_on(ids.background, MARGIN)
+                //     .down(20.)
+                //     .set(ids.text_exposure, &mut ui);
+                for sigma_t in widget::Slider::new(data.sigma_t.ln(), -10., 10.)
+                    .w_h(50., 10.)
+                    .x_relative_to(ids.background, 30.)
+                    .down(20.)
+                    .set(ids.slider_sigma_t, &mut ui)
+                {
+                    data.sigma_t = sigma_t.exp();
+                }
+                for sigma_f in widget::Slider::new(data.sigma_f, -1000., 1000.)
+                    .w_h(50., 10.)
+                    .x_relative_to(ids.background, 30.)
+                    .down(20.)
+                    .set(ids.slider_sigma_f, &mut ui)
+                {
+                    data.sigma_f = sigma_f;
                 }
                 widget::Text::new("Ambience")
                     .mid_top_with_margin_on(ids.background, MARGIN)
@@ -815,6 +839,8 @@ fn setup(
         d: 0,
         e: 0,
         f: 0,
+        sigma_t: 100.,
+        sigma_f: 1.,
         min_dist: 1e-3,
         max_dist: 1e+5,
         camera_fov_angle: PI * 0.67,
